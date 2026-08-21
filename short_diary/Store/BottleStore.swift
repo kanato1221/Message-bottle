@@ -24,7 +24,7 @@ final class BottleStore: ObservableObject {
     private let reportsStorageKey = "hitouta.reportedBottles.v1"
     private let driftDelay: TimeInterval = 0
     private let exchangeService = BottleExchangeService()
-    let isDailyLimitEnabled = false
+    let isDailyLimitEnabled = true
     let dailyDriftLimit = 5
 
     init() {
