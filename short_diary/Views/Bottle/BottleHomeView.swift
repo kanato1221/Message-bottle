@@ -14,7 +14,9 @@ struct BottleHomeView: View {
     @State private var selectedBottleColor = BottleColor.seaGreen
     @State private var receivedBottle: ReceivedBottle?
     @State private var didReleaseAlone = false
+    @State private var isShowingUnsafeDraftConfirmation = false
     @State private var bottleToConfirm: BottleMessage?
+    @State private var unsafeBottleToConfirm: BottleMessage?
     @State private var isShowingDriftAnimation = false
     @State private var driftingBottleColor = BottleColor.seaGreen
     @FocusState private var isComposerFocused: Bool
@@ -36,7 +38,9 @@ struct BottleHomeView: View {
                                 .font(.system(size: 34, weight: .semibold, design: .serif))
                                 .foregroundStyle(Color.ink)
 
-                            Text("60文字まで。ボトルに入れて、1時間後に海へ流せます。")
+                            Text(store.isTestMode
+                                 ? "60文字まで。テストモードでは、すぐに海へ流せます。"
+                                 : "60文字まで。ボトルに入れて、1時間後に海へ流せます。")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -64,8 +68,13 @@ struct BottleHomeView: View {
 
                         Button {
                             isComposerFocused = false
-                            store.bottle(text: text, color: bottleColorForNewMessage)
-                            text = ""
+                            if BottleContentSafety.containsUnsafeContent(text) {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    isShowingUnsafeDraftConfirmation = true
+                                }
+                            } else {
+                                putDraftInBottle()
+                            }
                         } label: {
                             Label("ボトルに入れる", systemImage: "shippingbox")
                                 .font(.headline)
@@ -122,13 +131,40 @@ struct BottleHomeView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
 
+                if isShowingUnsafeDraftConfirmation {
+                    UnsafeDraftConfirmationOverlay(
+                        text: text,
+                        onRewrite: {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                isShowingUnsafeDraftConfirmation = false
+                            }
+                            isComposerFocused = true
+                        },
+                        onBottle: {
+                            putDraftInBottle()
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                isShowingUnsafeDraftConfirmation = false
+                            }
+                        }
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .zIndex(1)
+                }
+
                 if let bottleToConfirm {
                     DriftConfirmationOverlay(
                         bottle: bottleToConfirm,
                         isDailyLimitEnabled: store.isDailyLimitEnabled,
                         remainingDriftsToday: store.remainingDriftsToday,
                         onDrift: {
-                            startDrift(bottleToConfirm)
+                            if BottleContentSafety.containsUnsafeContent(bottleToConfirm.text) {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    self.bottleToConfirm = nil
+                                    unsafeBottleToConfirm = bottleToConfirm
+                                }
+                            } else {
+                                startDrift(bottleToConfirm)
+                            }
                         },
                         onHold: {
                             withAnimation(.easeOut(duration: 0.2)) {
@@ -139,6 +175,24 @@ struct BottleHomeView: View {
                             store.releaseAlone(bottleToConfirm)
                             withAnimation(.easeOut(duration: 0.2)) {
                                 self.bottleToConfirm = nil
+                                didReleaseAlone = true
+                            }
+                        }
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .zIndex(1)
+                }
+
+                if let unsafeBottleToConfirm {
+                    UnsafeContentConfirmationOverlay(
+                        bottle: unsafeBottleToConfirm,
+                        onRewrite: {
+                            rewrite(unsafeBottleToConfirm)
+                        },
+                        onRelease: {
+                            store.releaseAlone(unsafeBottleToConfirm)
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                self.unsafeBottleToConfirm = nil
                                 didReleaseAlone = true
                             }
                         }
@@ -178,8 +232,11 @@ struct BottleHomeView: View {
                         receivedBottle = nil
                     },
                     onRelease: {
-                        store.releaseReceived(bottle)
-                        receivedBottle = nil
+                        let didRelease = await store.releaseReceived(bottle, clientID: clientID)
+                        if didRelease {
+                            receivedBottle = nil
+                        }
+                        return didRelease
                     },
                     onReport: {
                         await store.reportReceived(bottle, clientID: clientID)
@@ -205,6 +262,8 @@ struct BottleHomeView: View {
             ForEach(store.waitingBottles) { bottle in
                 WaitingBottleCard(
                     bottle: bottle,
+                    ignoresDriftDelay: store.isTestMode,
+                    canReachOthers: !BottleContentSafety.containsUnsafeContent(bottle.text),
                     onRequestDrift: {
                         isComposerFocused = false
                         withAnimation(.easeOut(duration: 0.2)) {
@@ -278,6 +337,22 @@ struct BottleHomeView: View {
                 receivedBottle = result.receivedBottle
             }
         }
+    }
+
+    private func putDraftInBottle() {
+        store.bottle(text: text, color: bottleColorForNewMessage)
+        text = ""
+    }
+
+    private func rewrite(_ bottle: BottleMessage) {
+        text = bottle.text
+        selectedBottleColor = bottle.bottleColor
+        store.discard(bottle)
+
+        withAnimation(.easeOut(duration: 0.2)) {
+            unsafeBottleToConfirm = nil
+        }
+        isComposerFocused = true
     }
 }
 
@@ -413,6 +488,8 @@ private struct BottleColorPicker: View {
 
 private struct WaitingBottleCard: View {
     let bottle: BottleMessage
+    let ignoresDriftDelay: Bool
+    let canReachOthers: Bool
     let onRequestDrift: () -> Void
     let onDiscard: () -> Void
     @State private var horizontalOffset: CGFloat = 0
@@ -421,7 +498,7 @@ private struct WaitingBottleCard: View {
 
     var body: some View {
         TimelineView(.periodic(from: Date(), by: 30)) { context in
-            let isReady = context.date >= bottle.availableToDriftAt
+            let isReady = ignoresDriftDelay || context.date >= bottle.availableToDriftAt
 
             ZStack(alignment: .trailing) {
                 Button(role: .destructive, action: onDiscard) {
@@ -461,7 +538,10 @@ private struct WaitingBottleCard: View {
                         closeDeleteAction()
                         onRequestDrift()
                     } label: {
-                        Label("海へ流す", systemImage: "water.waves")
+                        Label(
+                            canReachOthers ? "海へ流す" : "誰にも届かない海へ流す",
+                            systemImage: "water.waves"
+                        )
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
                     }
@@ -508,6 +588,67 @@ private struct WaitingBottleCard: View {
             return "約\(minutes / 60)時間"
         }
         return "\(max(minutes, 1))分"
+    }
+
+}
+
+private struct UnsafeDraftConfirmationOverlay: View {
+    let text: String
+    let onRewrite: () -> Void
+    let onBottle: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.ink.opacity(0.28)
+                .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Color.cedar)
+
+                VStack(spacing: 8) {
+                    Text("確認してください")
+                        .font(.system(size: 22, weight: .semibold, design: .serif))
+                        .foregroundStyle(Color.ink)
+
+                    Text("このメッセージには不適切な言葉が含まれています。このボトルは、誰にも届かない海にしか流すことができません。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(text)
+                    .font(.system(.body, design: .serif))
+                    .foregroundStyle(Color.ink)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+
+                VStack(spacing: 10) {
+                    Button(action: onRewrite) {
+                        CenteredActionLabel(title: "書き直す", systemImage: "pencil")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+
+                    Button(action: onBottle) {
+                        CenteredActionLabel(title: "ボトルに入れる", systemImage: "shippingbox")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.moss)
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: 330)
+            .background(Color.paper, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(AppTheme.line)
+            }
+            .shadow(color: Color.ink.opacity(0.18), radius: 24, x: 0, y: 14)
+            .padding(24)
+        }
     }
 }
 
@@ -593,6 +734,66 @@ private struct DriftConfirmationOverlay: View {
             return "実機テスト中のため、本数制限は外しています。"
         }
         return remainingDriftsToday > 0 ? "今日はあと\(remainingDriftsToday)本流せます。" : "今日はもう誰かに届く海へは流せません。"
+    }
+}
+
+private struct UnsafeContentConfirmationOverlay: View {
+    let bottle: BottleMessage
+    let onRewrite: () -> Void
+    let onRelease: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.ink.opacity(0.28)
+                .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Color.cedar)
+
+                VStack(spacing: 8) {
+                    Text("確認してください")
+                        .font(.system(size: 22, weight: .semibold, design: .serif))
+                        .foregroundStyle(Color.ink)
+
+                    Text("このメッセージには不適切な言葉が含まれているため、誰にも届かない海へ流します。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(bottle.text)
+                    .font(.system(.body, design: .serif))
+                    .foregroundStyle(Color.ink)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+
+                VStack(spacing: 10) {
+                    Button(action: onRewrite) {
+                        CenteredActionLabel(title: "書き直す", systemImage: "pencil")
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+
+                    Button(action: onRelease) {
+                        CenteredActionLabel(title: "流す", systemImage: "water.waves")
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.moss)
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: 330)
+            .background(Color.paper, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(AppTheme.line)
+            }
+            .shadow(color: Color.ink.opacity(0.18), radius: 24, x: 0, y: 14)
+            .padding(24)
+        }
     }
 }
 

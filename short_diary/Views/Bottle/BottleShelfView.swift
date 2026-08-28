@@ -7,6 +7,7 @@ import SwiftUI
 
 struct BottleShelfView: View {
     @ObservedObject var store: BottleStore
+    @ObservedObject var authStore: AuthStore
     @State private var selectedMode = 0
     @State private var receivedSort = ReceivedBottleSort.newest
 
@@ -61,7 +62,7 @@ struct BottleShelfView: View {
     private var receivedShelfContent: some View {
         LazyVStack(spacing: 22) {
             ForEach(Array(receivedShelves.enumerated()), id: \.offset) { _, shelf in
-                BottleShelfRow(store: store, bottles: shelf)
+                BottleShelfRow(store: store, authStore: authStore, bottles: shelf)
             }
 
             if store.receivedBottles.isEmpty {
@@ -173,6 +174,7 @@ private struct ShelfItem: Identifiable {
 
 private struct BottleShelfRow: View {
     @ObservedObject var store: BottleStore
+    @ObservedObject var authStore: AuthStore
     let bottles: [ReceivedBottle]
 
     var body: some View {
@@ -180,7 +182,7 @@ private struct BottleShelfRow: View {
             HStack(alignment: .bottom, spacing: 18) {
                 ForEach(bottles) { bottle in
                     NavigationLink {
-                        ReceivedBottleDetailView(store: store, bottle: bottle)
+                        ReceivedBottleDetailView(store: store, authStore: authStore, bottle: bottle)
                     } label: {
                         ShelfBottleView(bottle: bottle)
                     }

@@ -6,8 +6,13 @@
 import SwiftUI
 
 struct ReceivedBottleDetailView: View {
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject var store: BottleStore
+    @ObservedObject var authStore: AuthStore
     let bottle: ReceivedBottle
+    @State private var isShowingReleaseConfirmation = false
+    @State private var isReturningToSea = false
+    @State private var isShowingReturnError = false
 
     var body: some View {
         ZStack {
@@ -44,6 +49,58 @@ struct ReceivedBottleDetailView: View {
 
                         BottleMessagePaper(text: bottle.text)
                     }
+
+                    Button {
+                        isShowingReleaseConfirmation = true
+                    } label: {
+                        Label("海に返す", systemImage: "water.waves")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.cedar)
+                    .popover(
+                        isPresented: $isShowingReleaseConfirmation,
+                        attachmentAnchor: .rect(.bounds),
+                        arrowEdge: .bottom
+                    ) {
+                        VStack(spacing: 16) {
+                            VStack(spacing: 7) {
+                                Text("このボトルを海に返しますか？")
+                                    .font(.headline)
+                                    .foregroundStyle(Color.ink)
+
+                                Text("海に返すと棚から離れ、またどこかの誰かへ流れていきます。")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+
+                            VStack(spacing: 9) {
+                                Button {
+                                    returnCurrentBottleToSea()
+                                } label: {
+                                    Label("海に返す", systemImage: "water.waves")
+                                        .frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.cedar)
+                                .disabled(isReturningToSea)
+
+                                Button("キャンセル") {
+                                    isShowingReleaseConfirmation = false
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.ink)
+                                .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .padding(18)
+                        .frame(width: 300)
+                        .presentationCompactAdaptation(.popover)
+                    }
                 }
                 .padding(.horizontal, 22)
                 .padding(.top, 36)
@@ -52,6 +109,26 @@ struct ReceivedBottleDetailView: View {
         }
         .navigationTitle("漂着したボトル")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("海に返せませんでした", isPresented: $isShowingReturnError) {
+            Button("閉じる", role: .cancel) {}
+        } message: {
+            Text("通信状態を確認して、もう一度「海に返す」を押してください。ボトルは棚に残っています。")
+        }
+    }
+
+    private func returnCurrentBottleToSea() {
+        guard !isReturningToSea else { return }
+        isShowingReleaseConfirmation = false
+        isReturningToSea = true
+
+        Task {
+            if await store.releaseReceived(currentBottle, clientID: authStore.userID) {
+                dismiss()
+            } else {
+                isReturningToSea = false
+                isShowingReturnError = true
+            }
+        }
     }
 
     private var currentBottle: ReceivedBottle {

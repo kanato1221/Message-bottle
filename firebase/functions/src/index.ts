@@ -24,6 +24,10 @@ type BlockBottleSenderRequest = {
   bottleID?: string;
 };
 
+type ReturnBottleRequest = {
+  bottleID?: string;
+};
+
 type StoredBottle = {
   clientID: string;
   text: string;
@@ -33,6 +37,7 @@ type StoredBottle = {
   createdAt: FieldValue;
   isReported?: boolean;
   deliveredCount?: number;
+  lastReturnedBy?: string;
 };
 
 type DeliveredBottle = {
@@ -50,6 +55,17 @@ const allowedBottleColors = new Set<BottleColor>([
   "smoke",
   "rose"
 ]);
+
+// Conservative pre-distribution checks for anonymous user-generated content.
+// Keep these server-side so older clients receive the same protection.
+const unsafeContentPatterns: RegExp[] = [
+  /(https?:\/\/|www\.|[\w.-]+@[\w.-]+|\d{2,4}[-\s]\d{2,4}[-\s]\d{3,4})/i,
+  /(?:line|instagram|insta|discord|telegram|twitter|tiktok|snapchat|kakao)(?:\s*[:：@＠_-]\s*|\s+id\s*)[a-z0-9._-]{2,}/i,
+  /(?:死ね|しね|殺す|ころす|消えろ|自殺|首をつる|リスカ)/i,
+  /(?:セックス|性交|裸|ヌード|エロ|猥褻|援助交際)/i,
+  /(?:覚醒剤|大麻|麻薬|ドラッグ|犯罪予告|爆破予告)/i,
+  /(?:家に来い|会おう|会いたい|住所教え|連絡先教え)/i
+];
 
 const fallbackBottles: Array<Omit<DeliveredBottle, "driftedAt">> = [
   {
@@ -88,6 +104,12 @@ export const exchangeBottle = onRequest({ region: "asia-northeast1" }, async (re
   const uid = await authenticatedUID(request);
   if (!uid) {
     response.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+
+  const submittedText = cleanText((request.body as ExchangeBottleRequest).text, maxBottleTextLength);
+  if (submittedText && containsUnsafeText(submittedText)) {
+    response.status(422).json({ error: "unsafe-content" });
     return;
   }
 
@@ -141,6 +163,7 @@ export const reportBottle = onRequest({ region: "asia-northeast1" }, async (requ
   await db.collection("reports").add({
     bottleID,
     reporterClientID: uid,
+    bottleAuthorClientID: (bottleSnapshot.data() as StoredBottle).clientID,
     createdAt: FieldValue.serverTimestamp()
   });
 
@@ -189,6 +212,51 @@ export const blockBottleSender = onRequest({ region: "asia-northeast1" }, async 
   response.json({ ok: true });
 });
 
+export const returnBottleToSea = onRequest({ region: "asia-northeast1" }, async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({ error: "method-not-allowed" });
+    return;
+  }
+
+  const uid = await authenticatedUID(request);
+  if (!uid) {
+    response.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+
+  const body = request.body as ReturnBottleRequest;
+  const bottleID = cleanText(body.bottleID, 120);
+  if (!bottleID) {
+    response.status(400).json({ error: "invalid-return" });
+    return;
+  }
+
+  const bottleRef = db.collection("bottles").doc(bottleID);
+  const bottleSnapshot = await bottleRef.get();
+  if (!bottleSnapshot.exists) {
+    // The author may have deleted their account after this bottle was received.
+    // Let the recipient remove their local copy without recreating deleted UGC.
+    response.json({ ok: true, redistributed: false, reason: "bottle-not-found" });
+    return;
+  }
+
+  const bottle = bottleSnapshot.data() as StoredBottle;
+  if (bottle.isReported === true) {
+    // Reported content must never be put back into the delivery pool.
+    response.json({ ok: true, redistributed: false, reason: "reported" });
+    return;
+  }
+
+  await bottleRef.set({
+    randomKey: Math.random(),
+    returnedAt: FieldValue.serverTimestamp(),
+    lastReturnedBy: uid,
+    returnCount: FieldValue.increment(1)
+  }, { merge: true });
+
+  response.json({ ok: true, redistributed: true });
+});
+
 export const deleteAccountData = onRequest({ region: "asia-northeast1" }, async (request, response) => {
   if (request.method !== "POST") {
     response.status(405).json({ error: "method-not-allowed" });
@@ -201,32 +269,55 @@ export const deleteAccountData = onRequest({ region: "asia-northeast1" }, async 
     return;
   }
 
-  const bottlesSnapshot = await db.collection("bottles")
-    .where("clientID", "==", uid)
-    .limit(450)
-    .get();
+  const [bottlesSnapshot, ownReportsSnapshot, authoredReportsSnapshot, ownBlocksSnapshot, blockedByOthersSnapshot] =
+    await Promise.all([
+      db.collection("bottles").where("clientID", "==", uid).get(),
+      db.collection("reports").where("reporterClientID", "==", uid).get(),
+      db.collection("reports").where("bottleAuthorClientID", "==", uid).get(),
+      db.collection("blocks").where("reporterClientID", "==", uid).get(),
+      db.collection("blocks").where("blockedClientID", "==", uid).get()
+    ]);
 
-  const reportsSnapshot = await db.collection("reports")
-    .where("reporterClientID", "==", uid)
-    .limit(50)
-    .get();
+  // Older report records do not have bottleAuthorClientID. Resolve those by
+  // the IDs of this user's authored bottles so account deletion also removes
+  // historical report data.
+  const authoredBottleIDs = bottlesSnapshot.docs.map((doc) => doc.id);
+  const authoredBottleIDChunks: string[][] = [];
+  for (let index = 0; index < authoredBottleIDs.length; index += 30) {
+    authoredBottleIDChunks.push(authoredBottleIDs.slice(index, index + 30));
+  }
+  const historicalReportSnapshots = await Promise.all(
+    authoredBottleIDChunks.map((bottleIDChunk) =>
+      db.collection("reports").where("bottleID", "in", bottleIDChunk).get()
+    )
+  );
 
-  const blocksSnapshot = await db.collection("blocks")
-    .where("reporterClientID", "==", uid)
-    .limit(200)
-    .get();
+  const documentPaths = new Set<string>();
+  [
+    bottlesSnapshot,
+    ownReportsSnapshot,
+    authoredReportsSnapshot,
+    ownBlocksSnapshot,
+    blockedByOthersSnapshot,
+    ...historicalReportSnapshots
+  ].forEach((snapshot) => {
+    snapshot.docs.forEach((doc) => documentPaths.add(doc.ref.path));
+  });
 
-  const batch = db.batch();
-  bottlesSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-  reportsSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-  blocksSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
-  await batch.commit();
+  // BulkWriter safely handles more than Firestore's 500-operation batch limit.
+  const writer = db.bulkWriter();
+  documentPaths.forEach((path) => writer.delete(db.doc(path)));
+  await writer.close();
+
+  // The private cloud shelf lives in a subcollection, so delete recursively.
+  await db.recursiveDelete(db.collection("users").doc(uid));
 
   response.json({
     ok: true,
     deletedBottles: bottlesSnapshot.size,
-    deletedReports: reportsSnapshot.size,
-    deletedBlocks: blocksSnapshot.size
+    deletedReports: [...documentPaths].filter((path) => path.startsWith("reports/")).length,
+    deletedBlocks: [...documentPaths].filter((path) => path.startsWith("blocks/")).length,
+    deletedPrivateUserData: true
   });
 });
 
@@ -277,7 +368,6 @@ async function findDeliveredBottle(
   const laterSnapshot = await db.collection("bottles")
     .where("randomKey", ">=", randomKey)
     .orderBy("randomKey")
-    .limit(20)
     .get();
 
   const laterMatch = await pickMatch(laterSnapshot.docs, clientID, ownID, blockedClientIDs);
@@ -288,7 +378,6 @@ async function findDeliveredBottle(
   const earlierSnapshot = await db.collection("bottles")
     .where("randomKey", "<", randomKey)
     .orderBy("randomKey")
-    .limit(20)
     .get();
 
   return pickMatch(earlierSnapshot.docs, clientID, ownID, blockedClientIDs);
@@ -304,6 +393,7 @@ async function pickMatch(
     const data = doc.data() as StoredBottle;
     return doc.id !== ownID &&
       data.clientID !== clientID &&
+      data.lastReturnedBy !== clientID &&
       data.isReported !== true &&
       !blockedClientIDs.has(data.clientID);
   });
@@ -369,7 +459,8 @@ function cleanText(value: unknown, maxLength: number) {
 }
 
 function containsUnsafeText(value: string) {
-  return /(https?:\/\/|[\w.-]+@[\w.-]+|\d{2,4}-\d{2,4}-\d{3,4})/.test(value);
+  const normalized = value.normalize("NFKC").replace(/\s+/g, " ");
+  return unsafeContentPatterns.some((pattern) => pattern.test(normalized));
 }
 
 function hashString(value: string) {

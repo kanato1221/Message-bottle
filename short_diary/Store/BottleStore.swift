@@ -23,19 +23,32 @@ final class BottleStore: ObservableObject {
     private let storageKey = "hitouta.bottles.v1"
     private let accountStorageKey = "hitouta.bottles.accountUserID.v1"
     private let reportsStorageKey = "hitouta.reportedBottles.v1"
+
+#if DEBUG
+    let isTestMode = true
+    private let driftDelay: TimeInterval = 0
+    let isDailyLimitEnabled = false
+#else
+    let isTestMode = false
     private let driftDelay: TimeInterval = 60 * 60
+    let isDailyLimitEnabled = true
+#endif
+
     private let exchangeService = BottleExchangeService()
     private let cloudStore = BottleCloudStore()
     private let notificationScheduler = BottleReadyNotificationScheduler.shared
     private var currentUserID: String?
     private var isApplyingCloudState = false
-    let isDailyLimitEnabled = true
     let dailyDriftLimit = 5
 
     init() {
         load()
         loadReports()
-        rescheduleWaitingBottleNotifications()
+        if isTestMode {
+            notificationScheduler.cancelAllReadyNotifications()
+        } else {
+            rescheduleWaitingBottleNotifications()
+        }
     }
 
     var waitingBottles: [BottleMessage] {
@@ -91,6 +104,10 @@ final class BottleStore: ObservableObject {
         return remainingDriftsToday > 0
     }
 
+    func isReadyToDrift(_ bottle: BottleMessage) -> Bool {
+        isTestMode ? bottle.status == .waiting : bottle.isReadyToDrift
+    }
+
     func bottle(text: String, color: BottleColor = .seaGreen) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, canCreateBottle else { return }
@@ -105,7 +122,9 @@ final class BottleStore: ObservableObject {
         )
 
         bottles.append(bottle)
-        notificationScheduler.scheduleReadyNotification(for: bottle)
+        if !isTestMode {
+            notificationScheduler.scheduleReadyNotification(for: bottle)
+        }
     }
 
     func connectAccount(userID: String) async {
@@ -129,7 +148,9 @@ final class BottleStore: ObservableObject {
             }
 
             saveToCloud()
-            rescheduleWaitingBottleNotifications()
+            if !isTestMode {
+                rescheduleWaitingBottleNotifications()
+            }
         } catch {
             exchangeErrorMessage = "ボトル棚を同期できませんでした。通信状態を確認してください。"
         }
@@ -150,7 +171,7 @@ final class BottleStore: ObservableObject {
         }
 
         var updatedBottle = bottles[index]
-        guard updatedBottle.status == .waiting, updatedBottle.isReadyToDrift, canDriftToday else {
+        guard isReadyToDrift(updatedBottle), canDriftToday else {
             return updatedBottle
         }
 
@@ -158,6 +179,9 @@ final class BottleStore: ObservableObject {
             let receivedBottle = try await exchangeService.exchange(bottle: updatedBottle, clientID: clientID)
             updatedBottle.receivedBottle = receivedBottle
             exchangeErrorMessage = nil
+        } catch BottleExchangeError.unsafeContent {
+            exchangeErrorMessage = "この内容は安全上の理由により流せません。個人情報や不適切な表現が含まれていないか確認してください。"
+            return updatedBottle
         } catch {
             exchangeErrorMessage = "ボトルを流せませんでした。通信状態を確認して、もう一度試してください。"
             return updatedBottle
@@ -175,7 +199,19 @@ final class BottleStore: ObservableObject {
         bottles[index].status = .kept
     }
 
-    func releaseReceived(_ bottle: ReceivedBottle) {
+    func releaseReceived(_ bottle: ReceivedBottle, clientID: String) async -> Bool {
+        do {
+            try await exchangeService.returnToSea(bottle, clientID: clientID)
+            removeReceived(bottle)
+            exchangeErrorMessage = nil
+            return true
+        } catch {
+            exchangeErrorMessage = "ボトルを海に返せませんでした。通信状態を確認して、もう一度試してください。"
+            return false
+        }
+    }
+
+    private func removeReceived(_ bottle: ReceivedBottle) {
         guard let index = indexOfMessage(containing: bottle) else { return }
         bottles[index].receivedBottle = nil
     }
@@ -196,28 +232,31 @@ final class BottleStore: ObservableObject {
                 reportedAt: Date()
             ))
         }
-        releaseReceived(bottle)
+        removeReceived(bottle)
     }
 
-    func reportReceived(_ bottle: ReceivedBottle, clientID: String) async {
+    func reportReceived(_ bottle: ReceivedBottle, clientID: String) async -> Bool {
         do {
             try await exchangeService.report(bottle: bottle, clientID: clientID)
+            reportReceived(bottle)
+            exchangeErrorMessage = nil
+            return true
         } catch {
-            exchangeErrorMessage = "通報を送信できませんでした。手元の棚からは外しました。"
+            exchangeErrorMessage = "通報を送信できませんでした。通信状態を確認して、もう一度試してください。"
+            return false
         }
-
-        reportReceived(bottle)
     }
 
-    func blockSender(of bottle: ReceivedBottle, clientID: String) async {
+    func blockSender(of bottle: ReceivedBottle, clientID: String) async -> Bool {
         do {
             try await exchangeService.blockSender(of: bottle, clientID: clientID)
+            removeReceived(bottle)
             exchangeErrorMessage = nil
+            return true
         } catch {
-            exchangeErrorMessage = "ブロックを送信できませんでした。手元の棚からは外しました。"
+            exchangeErrorMessage = "ブロックを送信できませんでした。通信状態を確認して、もう一度試してください。"
+            return false
         }
-
-        releaseReceived(bottle)
     }
 
     func discard(_ bottle: BottleMessage) {

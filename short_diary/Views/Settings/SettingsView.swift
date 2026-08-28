@@ -55,13 +55,14 @@ struct SettingsView: View {
                     Task {
                         let didDelete = await authStore.deleteAccount()
                         if didDelete {
+                            bottleStore.disconnectAccount()
                             bottleStore.clearLocalData()
                         }
                     }
                 }
                 Button("キャンセル", role: .cancel) {}
             } message: {
-                Text("ログイン情報と、この端末に保存されたボトル棚を削除します。この操作は取り消せません。")
+                Text("ログイン情報、この端末とクラウドに保存されたボトル棚、投稿・通報・ブロックに関するデータを削除します。この操作は取り消せません。")
             }
         }
     }
@@ -119,6 +120,13 @@ struct SettingsView: View {
 
     private var settingsLinksSection: some View {
         VStack(spacing: 0) {
+            Link(destination: DeveloperContactCard.reportEmailURL) {
+                SettingsRow(title: "不適切な活動を報告・お問い合わせ", systemImage: "exclamationmark.bubble")
+            }
+
+            Divider()
+                .padding(.leading, 42)
+
             NavigationLink {
                 LegalAndSafetyView()
             } label: {
@@ -195,14 +203,6 @@ private struct LegalAndSafetyView: View {
                             SettingsRow(title: "プライバシーポリシー", systemImage: "hand.raised")
                         }
 
-                        Divider()
-                            .padding(.leading, 42)
-
-                        NavigationLink {
-                            ReportOperationView()
-                        } label: {
-                            SettingsRow(title: "通報されたボトルの確認", systemImage: "exclamationmark.triangle")
-                        }
                     }
                     .settingsCard()
                 }
@@ -216,7 +216,16 @@ private struct LegalAndSafetyView: View {
 }
 
 private struct DeveloperContactCard: View {
-    private let supportEmail = "jouersapp@gmail.com"
+    private static let supportEmail = "jouersapp@gmail.com"
+    static let reportEmailURL: URL = {
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = supportEmail
+        components.queryItems = [
+            URLQueryItem(name: "subject", value: "ながれびん・不適切な活動の報告")
+        ]
+        return components.url ?? URL(string: "mailto:jouersapp@gmail.com")!
+    }()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -229,11 +238,15 @@ private struct DeveloperContactCard: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Link(destination: URL(string: "mailto:\(supportEmail)")!) {
-                Text(supportEmail)
+            Link(destination: Self.reportEmailURL) {
+                Label("開発者にメールで報告", systemImage: "paperplane")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color.moss)
             }
+
+            Text(Self.supportEmail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .settingsCard()

@@ -10,6 +10,7 @@ struct BottleExchangeService {
     private let exchangeURL = URL(string: "https://exchangebottle-2c27cj2ouq-an.a.run.app")!
     private let reportURL = URL(string: "https://reportbottle-2c27cj2ouq-an.a.run.app")!
     private let blockURL = URL(string: "https://asia-northeast1-shortdiary-66f95.cloudfunctions.net/blockBottleSender")!
+    private let returnURL = URL(string: "https://asia-northeast1-shortdiary-66f95.cloudfunctions.net/returnBottleToSea")!
 
     func exchange(bottle: BottleMessage, clientID: String) async throws -> ReceivedBottle {
         let requestBody = ExchangeBottleRequest(
@@ -36,6 +37,13 @@ struct BottleExchangeService {
         let _: BlockBottleSenderResponse = try await post(requestBody, to: blockURL)
     }
 
+    func returnToSea(_ bottle: ReceivedBottle, clientID: String) async throws {
+        guard let serverID = bottle.serverID else { return }
+
+        let requestBody = ReturnBottleRequest(bottleID: serverID)
+        let _: ReturnBottleResponse = try await post(requestBody, to: returnURL)
+    }
+
     private func post<Request: Encodable, Response: Decodable>(_ body: Request, to url: URL) async throws -> Response {
         guard let user = Auth.auth().currentUser else {
             throw BottleExchangeError.notSignedIn
@@ -49,8 +57,14 @@ struct BottleExchangeService {
         request.httpBody = try JSONEncoder().encode(body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200..<300).contains(httpResponse.statusCode) else {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BottleExchangeError.serverError
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            if let serverError = try? JSONDecoder().decode(ServerErrorResponse.self, from: data),
+               serverError.error == "unsafe-content" {
+                throw BottleExchangeError.unsafeContent
+            }
             throw BottleExchangeError.serverError
         }
 
@@ -60,7 +74,12 @@ struct BottleExchangeService {
 
 enum BottleExchangeError: Error {
     case notSignedIn
+    case unsafeContent
     case serverError
+}
+
+private struct ServerErrorResponse: Decodable {
+    var error: String
 }
 
 private struct ExchangeBottleRequest: Encodable {
@@ -105,4 +124,14 @@ private struct BlockBottleSenderRequest: Encodable {
 
 private struct BlockBottleSenderResponse: Decodable {
     var ok: Bool
+}
+
+private struct ReturnBottleRequest: Encodable {
+    var bottleID: String
+}
+
+private struct ReturnBottleResponse: Decodable {
+    var ok: Bool
+    var redistributed: Bool?
+    var reason: String?
 }

@@ -19,7 +19,7 @@ struct ContentView: View {
                         Label("流す", systemImage: "water.waves")
                     }
 
-                BottleShelfView(store: bottleStore)
+                BottleShelfView(store: bottleStore, authStore: authStore)
                     .tabItem {
                         Label("ボトル棚", systemImage: "shippingbox")
                     }

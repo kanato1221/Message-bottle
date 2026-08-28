@@ -8,14 +8,15 @@ import SwiftUI
 struct ReceivedBottleView: View {
     let bottle: ReceivedBottle
     let onKeep: () -> Void
-    let onRelease: () -> Void
-    let onReport: () async -> Void
-    let onBlock: () async -> Void
+    let onRelease: () async -> Bool
+    let onReport: () async -> Bool
+    let onBlock: () async -> Bool
     let onFinish: () -> Void
     @State private var isOpen = false
     @State private var safetyMessage: String?
     @State private var followUpPrompt: SafetyFollowUpPrompt?
     @State private var isHandlingSafetyAction = false
+    @State private var safetyErrorMessage: String?
 
     var body: some View {
         ZStack {
@@ -66,12 +67,13 @@ struct ReceivedBottleView: View {
                     .buttonStyle(ReactionButtonStyle(isSelected: true))
 
                     Button {
-                        onRelease()
+                        handleRelease()
                     } label: {
                         Label("海に返す", systemImage: "water.waves")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(ReactionButtonStyle(isSelected: false))
+                    .disabled(isHandlingSafetyAction)
                 }
 
                 HStack(spacing: 18) {
@@ -130,6 +132,35 @@ struct ReceivedBottleView: View {
                 isOpen = true
             }
         }
+        .alert("操作を完了できませんでした", isPresented: safetyErrorIsPresented) {
+            Button("閉じる", role: .cancel) {}
+        } message: {
+            Text(safetyErrorMessage ?? "通信状態を確認して、もう一度お試しください。")
+        }
+    }
+
+    private var safetyErrorIsPresented: Binding<Bool> {
+        Binding(
+            get: { safetyErrorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    safetyErrorMessage = nil
+                }
+            }
+        )
+    }
+
+    private func handleRelease() {
+        guard !isHandlingSafetyAction else { return }
+
+        Task {
+            isHandlingSafetyAction = true
+            let didSucceed = await onRelease()
+            if !didSucceed {
+                safetyErrorMessage = "ボトルを海に返せませんでした。通信状態を確認して、もう一度お試しください。ボトルは棚に残っています。"
+            }
+            isHandlingSafetyAction = false
+        }
     }
 
     private func handleFollowUpConfirmation(_ prompt: SafetyFollowUpPrompt) {
@@ -139,37 +170,47 @@ struct ReceivedBottleView: View {
             followUpPrompt = nil
             switch prompt {
             case .confirmReport:
-                await runSafetyAction(message: "通報しました。このボトルは表示されなくなります。") {
+                let didReport = await runSafetyAction(message: "通報しました。このボトルは表示されなくなります。") {
                     await onReport()
                 }
+                guard didReport else { return }
                 followUpPrompt = .blockAfterReport
                 return
             case .confirmBlock:
-                await runSafetyAction(message: "ブロックしました。この送信者のボトルは今後届きません。") {
+                let didBlock = await runSafetyAction(message: "ブロックしました。この送信者のボトルは今後届きません。") {
                     await onBlock()
                 }
+                guard didBlock else { return }
                 followUpPrompt = .reportAfterBlock
                 return
             case .blockAfterReport:
-                await runSafetyAction(message: "ブロックしました。この送信者のボトルは今後届きません。") {
+                let didBlock = await runSafetyAction(message: "ブロックしました。この送信者のボトルは今後届きません。") {
                     await onBlock()
                 }
+                guard didBlock else { return }
             case .reportAfterBlock:
-                await runSafetyAction(message: "通報しました。このボトルは表示されなくなります。") {
+                let didReport = await runSafetyAction(message: "通報しました。このボトルは表示されなくなります。") {
                     await onReport()
                 }
+                guard didReport else { return }
             }
             finishAfterShortDelay()
         }
     }
 
-    private func runSafetyAction(message: String, action: () async -> Void) async {
+    private func runSafetyAction(message: String, action: () async -> Bool) async -> Bool {
         isHandlingSafetyAction = true
-        await action()
+        let didSucceed = await action()
+        guard didSucceed else {
+            safetyErrorMessage = "通信状態を確認して、もう一度お試しください。ボトルは棚に残っています。"
+            isHandlingSafetyAction = false
+            return false
+        }
         withAnimation(.easeOut(duration: 0.2)) {
             safetyMessage = message
         }
         isHandlingSafetyAction = false
+        return true
     }
 
     private func finishAfterShortDelay() {
