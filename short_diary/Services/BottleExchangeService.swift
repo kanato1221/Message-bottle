@@ -9,6 +9,7 @@ import FirebaseAuth
 struct BottleExchangeService {
     private let exchangeURL = URL(string: "https://exchangebottle-2c27cj2ouq-an.a.run.app")!
     private let reportURL = URL(string: "https://reportbottle-2c27cj2ouq-an.a.run.app")!
+    private let blockURL = URL(string: "https://asia-northeast1-shortdiary-66f95.cloudfunctions.net/blockBottleSender")!
 
     func exchange(bottle: BottleMessage, clientID: String) async throws -> ReceivedBottle {
         let requestBody = ExchangeBottleRequest(
@@ -26,6 +27,13 @@ struct BottleExchangeService {
 
         let requestBody = ReportBottleRequest(bottleID: serverID)
         let _: ReportBottleResponse = try await post(requestBody, to: reportURL)
+    }
+
+    func blockSender(of bottle: ReceivedBottle, clientID: String) async throws {
+        guard let serverID = bottle.serverID else { return }
+
+        let requestBody = BlockBottleSenderRequest(bottleID: serverID)
+        let _: BlockBottleSenderResponse = try await post(requestBody, to: blockURL)
     }
 
     private func post<Request: Encodable, Response: Decodable>(_ body: Request, to url: URL) async throws -> Response {
@@ -88,5 +96,13 @@ private struct ReportBottleRequest: Encodable {
 }
 
 private struct ReportBottleResponse: Decodable {
+    var ok: Bool
+}
+
+private struct BlockBottleSenderRequest: Encodable {
+    var bottleID: String
+}
+
+private struct BlockBottleSenderResponse: Decodable {
     var ok: Bool
 }

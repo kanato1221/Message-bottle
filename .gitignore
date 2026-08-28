@@ -1,3 +1,6 @@
 firebase/functions/node_modules/
 firebase/functions/.npm-cache/
 firebase/functions/lib/
+
+# Local Firebase configuration
+short_diary/GoogleService-Info.plist

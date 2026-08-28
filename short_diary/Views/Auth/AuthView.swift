@@ -10,9 +10,11 @@ struct AuthView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var isCreatingAccount = false
+    @State private var hasAcceptedTerms = false
+    @State private var isShowingTerms = false
 
     private var canSubmit: Bool {
-        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && password.count >= 6
+        !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && password.count >= 6 && hasAcceptedTerms
     }
 
     var body: some View {
@@ -23,7 +25,7 @@ struct AuthView: View {
                 Spacer()
 
                 VStack(spacing: 10) {
-                    Text("ひとうた")
+                    Text("ながれびん")
                         .font(.system(size: 18, weight: .medium, design: .serif))
                         .foregroundStyle(.secondary)
 
@@ -33,26 +35,12 @@ struct AuthView: View {
                 }
 
                 VStack(spacing: 14) {
-                    HStack(spacing: 8) {
-                        TextField("メールアドレス", text: $email)
-                            .textContentType(.emailAddress)
-                            .keyboardType(.emailAddress)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-
-                        Button {
-                            insertAtMarkIfNeeded()
-                        } label: {
-                            Text("@")
-                                .font(.headline)
-                                .foregroundStyle(Color.ink)
-                                .frame(width: 38, height: 38)
-                                .background(AppTheme.mist.opacity(0.65), in: RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("@を入力")
-                    }
-                    .authFieldStyle()
+                    TextField("メールアドレス", text: $email)
+                        .textContentType(.emailAddress)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .authFieldStyle()
 
                     SecureField("パスワード", text: $password)
                         .textContentType(isCreatingAccount ? .newPassword : .password)
@@ -71,6 +59,13 @@ struct AuthView: View {
                             .foregroundStyle(Color.moss)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+
+                    TermsAgreementRow(
+                        isAccepted: $hasAcceptedTerms,
+                        onShowTerms: {
+                            isShowingTerms = true
+                        }
+                    )
                 }
 
                 Button {
@@ -103,19 +98,62 @@ struct AuthView: View {
             }
             .padding(28)
         }
-    }
-
-    private func insertAtMarkIfNeeded() {
-        guard !email.contains("@") else { return }
-        email.append("@")
+        .sheet(isPresented: $isShowingTerms) {
+            NavigationStack {
+                TermsTextView(document: .terms)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("閉じる") {
+                                isShowingTerms = false
+                            }
+                        }
+                    }
+            }
+        }
     }
 
     private func switchAuthMode() {
         email = ""
         password = ""
+        hasAcceptedTerms = false
         authStore.errorMessage = nil
         authStore.successMessage = nil
         isCreatingAccount.toggle()
+    }
+}
+
+private struct TermsAgreementRow: View {
+    @Binding var isAccepted: Bool
+    let onShowTerms: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                isAccepted.toggle()
+            } label: {
+                Image(systemName: isAccepted ? "checkmark.square.fill" : "square")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(isAccepted ? Color.moss : .secondary)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isAccepted ? "利用規約に同意済み" : "利用規約に同意する")
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("利用規約に同意します。不適切な投稿や悪質な利用は許可されません。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button(action: onShowTerms) {
+                    Text("利用規約を読む")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.moss)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

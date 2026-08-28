@@ -10,6 +10,7 @@
 		140F5146300CAD40005D2A8C /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 140F5145300CAD40005D2A8C /* FirebaseCore */; };
 		140F5148300CAD40005D2A8C /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 140F5147300CAD40005D2A8C /* FirebaseMessaging */; };
 		140F514A30000000005D2A8C /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 140F514930000000005D2A8C /* FirebaseAuth */; };
+		140F514C30000000005D2A8C /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 140F514B30000000005D2A8C /* FirebaseFirestore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 				140F5148300CAD40005D2A8C /* FirebaseMessaging in Frameworks */,
 				140F5146300CAD40005D2A8C /* FirebaseCore in Frameworks */,
 				140F514A30000000005D2A8C /* FirebaseAuth in Frameworks */,
+				140F514C30000000005D2A8C /* FirebaseFirestore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -77,6 +79,7 @@
 				140F5145300CAD40005D2A8C /* FirebaseCore */,
 				140F5147300CAD40005D2A8C /* FirebaseMessaging */,
 				140F514930000000005D2A8C /* FirebaseAuth */,
+				140F514B30000000005D2A8C /* FirebaseFirestore */,
 			);
 			productName = short_diary;
 			productReference = 140F4FD2300C90FC005D2A8C /* short_diary.app */;
@@ -267,7 +270,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = U35FC7UYL4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -300,7 +303,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = U35FC7UYL4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -376,6 +379,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 140F5144300CAD40005D2A8C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAuth;
+		};
+		140F514B30000000005D2A8C /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 140F5144300CAD40005D2A8C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

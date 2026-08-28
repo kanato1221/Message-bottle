@@ -20,6 +20,10 @@ type ReportBottleRequest = {
   bottleID?: string;
 };
 
+type BlockBottleSenderRequest = {
+  bottleID?: string;
+};
+
 type StoredBottle = {
   clientID: string;
   text: string;
@@ -94,7 +98,8 @@ export const exchangeBottle = onRequest({ region: "asia-northeast1" }, async (re
   }
 
   const docRef = await db.collection("bottles").add(bottle);
-  const deliveredBottle = await findDeliveredBottle(bottle.clientID, docRef.id, bottle.randomKey);
+  const blockedClientIDs = await getBlockedClientIDs(bottle.clientID);
+  const deliveredBottle = await findDeliveredBottle(bottle.clientID, docRef.id, bottle.randomKey, blockedClientIDs);
 
   response.json({
     deliveredBottle: deliveredBottle ?? fallbackDeliveredBottle(bottle)
@@ -142,6 +147,48 @@ export const reportBottle = onRequest({ region: "asia-northeast1" }, async (requ
   response.json({ ok: true });
 });
 
+export const blockBottleSender = onRequest({ region: "asia-northeast1" }, async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({ error: "method-not-allowed" });
+    return;
+  }
+
+  const uid = await authenticatedUID(request);
+  if (!uid) {
+    response.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+
+  const body = request.body as BlockBottleSenderRequest;
+  const bottleID = cleanText(body.bottleID, 120);
+  if (!bottleID) {
+    response.status(400).json({ error: "invalid-block" });
+    return;
+  }
+
+  const bottleRef = db.collection("bottles").doc(bottleID);
+  const bottleSnapshot = await bottleRef.get();
+  if (!bottleSnapshot.exists) {
+    response.status(404).json({ error: "bottle-not-found" });
+    return;
+  }
+
+  const bottle = bottleSnapshot.data() as StoredBottle;
+  await db.collection("blocks").add({
+    bottleID,
+    reporterClientID: uid,
+    blockedClientID: bottle.clientID,
+    createdAt: FieldValue.serverTimestamp()
+  });
+
+  await bottleRef.set({
+    blockedAt: FieldValue.serverTimestamp(),
+    blockCount: FieldValue.increment(1)
+  }, { merge: true });
+
+  response.json({ ok: true });
+});
+
 export const deleteAccountData = onRequest({ region: "asia-northeast1" }, async (request, response) => {
   if (request.method !== "POST") {
     response.status(405).json({ error: "method-not-allowed" });
@@ -164,15 +211,22 @@ export const deleteAccountData = onRequest({ region: "asia-northeast1" }, async 
     .limit(50)
     .get();
 
+  const blocksSnapshot = await db.collection("blocks")
+    .where("reporterClientID", "==", uid)
+    .limit(200)
+    .get();
+
   const batch = db.batch();
   bottlesSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
   reportsSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  blocksSnapshot.docs.forEach((doc) => batch.delete(doc.ref));
   await batch.commit();
 
   response.json({
     ok: true,
     deletedBottles: bottlesSnapshot.size,
-    deletedReports: reportsSnapshot.size
+    deletedReports: reportsSnapshot.size,
+    deletedBlocks: blocksSnapshot.size
   });
 });
 
@@ -214,14 +268,19 @@ function normalizeBottle(body: ExchangeBottleRequest, uid: string): StoredBottle
   };
 }
 
-async function findDeliveredBottle(clientID: string, ownID: string, randomKey: number) {
+async function findDeliveredBottle(
+  clientID: string,
+  ownID: string,
+  randomKey: number,
+  blockedClientIDs: Set<string>
+) {
   const laterSnapshot = await db.collection("bottles")
     .where("randomKey", ">=", randomKey)
     .orderBy("randomKey")
     .limit(20)
     .get();
 
-  const laterMatch = await pickMatch(laterSnapshot.docs, clientID, ownID);
+  const laterMatch = await pickMatch(laterSnapshot.docs, clientID, ownID, blockedClientIDs);
   if (laterMatch) {
     return laterMatch;
   }
@@ -232,17 +291,21 @@ async function findDeliveredBottle(clientID: string, ownID: string, randomKey: n
     .limit(20)
     .get();
 
-  return pickMatch(earlierSnapshot.docs, clientID, ownID);
+  return pickMatch(earlierSnapshot.docs, clientID, ownID, blockedClientIDs);
 }
 
 async function pickMatch(
   docs: FirebaseFirestore.QueryDocumentSnapshot[],
   clientID: string,
-  ownID: string
+  ownID: string,
+  blockedClientIDs: Set<string>
 ): Promise<DeliveredBottle | undefined> {
   const match = docs.find((doc) => {
     const data = doc.data() as StoredBottle;
-    return doc.id !== ownID && data.clientID !== clientID && data.isReported !== true;
+    return doc.id !== ownID &&
+      data.clientID !== clientID &&
+      data.isReported !== true &&
+      !blockedClientIDs.has(data.clientID);
   });
 
   if (!match) {
@@ -261,6 +324,17 @@ async function pickMatch(
     bottleColor: normalizeBottleColor(data.bottleColor),
     driftedAt: data.driftedAt.toDate().toISOString()
   };
+}
+
+async function getBlockedClientIDs(clientID: string) {
+  const snapshot = await db.collection("blocks")
+    .where("reporterClientID", "==", clientID)
+    .limit(200)
+    .get();
+
+  return new Set(snapshot.docs
+    .map((doc) => doc.data().blockedClientID)
+    .filter((blockedClientID): blockedClientID is string => typeof blockedClientID === "string"));
 }
 
 function fallbackDeliveredBottle(bottle: StoredBottle): DeliveredBottle {

@@ -21,15 +21,21 @@ final class BottleStore: ObservableObject {
     @Published var exchangeErrorMessage: String?
 
     private let storageKey = "hitouta.bottles.v1"
+    private let accountStorageKey = "hitouta.bottles.accountUserID.v1"
     private let reportsStorageKey = "hitouta.reportedBottles.v1"
-    private let driftDelay: TimeInterval = 0
+    private let driftDelay: TimeInterval = 60 * 60
     private let exchangeService = BottleExchangeService()
+    private let cloudStore = BottleCloudStore()
+    private let notificationScheduler = BottleReadyNotificationScheduler.shared
+    private var currentUserID: String?
+    private var isApplyingCloudState = false
     let isDailyLimitEnabled = true
     let dailyDriftLimit = 5
 
     init() {
         load()
         loadReports()
+        rescheduleWaitingBottleNotifications()
     }
 
     var waitingBottles: [BottleMessage] {
@@ -90,16 +96,51 @@ final class BottleStore: ObservableObject {
         guard !trimmed.isEmpty, canCreateBottle else { return }
 
         let now = Date()
-        bottles.append(BottleMessage(
+        let bottle = BottleMessage(
             text: trimmed,
             bottleColor: color,
             createdAt: now,
             availableToDriftAt: now.addingTimeInterval(driftDelay),
             status: .waiting
-        ))
+        )
+
+        bottles.append(bottle)
+        notificationScheduler.scheduleReadyNotification(for: bottle)
+    }
+
+    func connectAccount(userID: String) async {
+        guard currentUserID != userID else { return }
+
+        let previousUserID = UserDefaults.standard.string(forKey: accountStorageKey)
+        if let previousUserID, previousUserID != userID {
+            isApplyingCloudState = true
+            bottles = []
+            isApplyingCloudState = false
+        }
+
+        currentUserID = userID
+        UserDefaults.standard.set(userID, forKey: accountStorageKey)
+
+        do {
+            if let cloudBottles = try await cloudStore.loadBottles(for: userID) {
+                isApplyingCloudState = true
+                bottles = mergedBottles(local: bottles, cloud: cloudBottles)
+                isApplyingCloudState = false
+            }
+
+            saveToCloud()
+            rescheduleWaitingBottleNotifications()
+        } catch {
+            exchangeErrorMessage = "ボトル棚を同期できませんでした。通信状態を確認してください。"
+        }
+    }
+
+    func disconnectAccount() {
+        currentUserID = nil
     }
 
     func releaseAlone(_ bottle: BottleMessage) {
+        notificationScheduler.cancelReadyNotification(for: bottle.id)
         bottles.removeAll { $0.id == bottle.id }
     }
 
@@ -125,6 +166,7 @@ final class BottleStore: ObservableObject {
         updatedBottle.status = .drifted
         updatedBottle.driftedAt = Date()
         bottles[index] = updatedBottle
+        notificationScheduler.cancelReadyNotification(for: updatedBottle.id)
         return updatedBottle
     }
 
@@ -167,11 +209,24 @@ final class BottleStore: ObservableObject {
         reportReceived(bottle)
     }
 
+    func blockSender(of bottle: ReceivedBottle, clientID: String) async {
+        do {
+            try await exchangeService.blockSender(of: bottle, clientID: clientID)
+            exchangeErrorMessage = nil
+        } catch {
+            exchangeErrorMessage = "ブロックを送信できませんでした。手元の棚からは外しました。"
+        }
+
+        releaseReceived(bottle)
+    }
+
     func discard(_ bottle: BottleMessage) {
+        notificationScheduler.cancelReadyNotification(for: bottle.id)
         bottles.removeAll { $0.id == bottle.id }
     }
 
     func clearLocalData() {
+        notificationScheduler.cancelAllReadyNotifications()
         bottles = []
         reportedBottles = []
         exchangeErrorMessage = nil
@@ -186,17 +241,13 @@ final class BottleStore: ObservableObject {
             return
         }
 
-        bottles = decoded.map { bottle in
-            guard bottle.status == .waiting else { return bottle }
-            var updatedBottle = bottle
-            updatedBottle.availableToDriftAt = min(bottle.availableToDriftAt, Date())
-            return updatedBottle
-        }
+        bottles = decoded
     }
 
     private func save() {
         guard let data = try? JSONEncoder().encode(bottles) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)
+        saveToCloud()
     }
 
     private func loadReports() {
@@ -212,6 +263,48 @@ final class BottleStore: ObservableObject {
     private func saveReports() {
         guard let data = try? JSONEncoder().encode(reportedBottles) else { return }
         UserDefaults.standard.set(data, forKey: reportsStorageKey)
+    }
+
+    private func rescheduleWaitingBottleNotifications() {
+        waitingBottles.forEach { bottle in
+            notificationScheduler.scheduleReadyNotification(for: bottle)
+        }
+    }
+
+    private func saveToCloud() {
+        guard !isApplyingCloudState, let currentUserID else { return }
+
+        let bottles = bottles
+        let cloudStore = cloudStore
+        Task {
+            do {
+                try await cloudStore.saveBottles(bottles, for: currentUserID)
+            } catch {
+                await MainActor.run {
+                    exchangeErrorMessage = "ボトル棚を同期できませんでした。通信状態を確認してください。"
+                }
+            }
+        }
+    }
+
+    private func mergedBottles(local: [BottleMessage], cloud: [BottleMessage]) -> [BottleMessage] {
+        var merged = Dictionary(uniqueKeysWithValues: cloud.map { ($0.id, $0) })
+
+        for bottle in local {
+            if let cloudBottle = merged[bottle.id] {
+                merged[bottle.id] = newerBottle(bottle, cloudBottle)
+            } else {
+                merged[bottle.id] = bottle
+            }
+        }
+
+        return merged.values.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func newerBottle(_ first: BottleMessage, _ second: BottleMessage) -> BottleMessage {
+        let firstDate = first.driftedAt ?? first.createdAt
+        let secondDate = second.driftedAt ?? second.createdAt
+        return firstDate >= secondDate ? first : second
     }
 
     private func indexOfMessage(containing bottle: ReceivedBottle) -> Int? {

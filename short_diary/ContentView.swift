@@ -30,8 +30,14 @@ struct ContentView: View {
                     }
             }
             .tint(.ink)
+            .task(id: authStore.userID) {
+                await bottleStore.connectAccount(userID: authStore.userID)
+            }
         } else {
             AuthView(authStore: authStore)
+                .onAppear {
+                    bottleStore.disconnectAccount()
+                }
         }
     }
 }

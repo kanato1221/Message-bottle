@@ -120,27 +120,9 @@ struct SettingsView: View {
     private var settingsLinksSection: some View {
         VStack(spacing: 0) {
             NavigationLink {
-                TermsTextView(document: .terms)
+                LegalAndSafetyView()
             } label: {
-                SettingsRow(title: "利用規約", systemImage: "doc.text")
-            }
-
-            Divider()
-                .padding(.leading, 42)
-
-            NavigationLink {
-                TermsTextView(document: .privacy)
-            } label: {
-                SettingsRow(title: "プライバシーポリシー", systemImage: "hand.raised")
-            }
-
-            Divider()
-                .padding(.leading, 42)
-
-            NavigationLink {
-                ReportOperationView()
-            } label: {
-                SettingsRow(title: "通報されたボトルの確認", systemImage: "exclamationmark.triangle")
+                SettingsRow(title: "利用規約と安全について", systemImage: "shield")
             }
         }
         .settingsCard()
@@ -175,6 +157,85 @@ struct SettingsView: View {
             .foregroundStyle(Color.cedar)
             .disabled(authStore.isWorking)
         }
+        .settingsCard()
+    }
+}
+
+private struct LegalAndSafetyView: View {
+    var body: some View {
+        ZStack {
+            AppTheme.background.ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("利用規約と安全について")
+                        .font(.system(size: 28, weight: .semibold, design: .serif))
+                        .foregroundStyle(Color.ink)
+
+                    Text("利用規約、プライバシーポリシー、通報やブロック、開発者への連絡方法をまとめています。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    DeveloperContactCard()
+
+                    VStack(spacing: 0) {
+                        NavigationLink {
+                            TermsTextView(document: .terms)
+                        } label: {
+                            SettingsRow(title: "利用規約", systemImage: "doc.text")
+                        }
+
+                        Divider()
+                            .padding(.leading, 42)
+
+                        NavigationLink {
+                            TermsTextView(document: .privacy)
+                        } label: {
+                            SettingsRow(title: "プライバシーポリシー", systemImage: "hand.raised")
+                        }
+
+                        Divider()
+                            .padding(.leading, 42)
+
+                        NavigationLink {
+                            ReportOperationView()
+                        } label: {
+                            SettingsRow(title: "通報されたボトルの確認", systemImage: "exclamationmark.triangle")
+                        }
+                    }
+                    .settingsCard()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
+            }
+        }
+        .navigationTitle("利用規約と安全")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct DeveloperContactCard: View {
+    private let supportEmail = "jouersapp@gmail.com"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("開発者への連絡", systemImage: "envelope")
+                .font(.headline)
+                .foregroundStyle(Color.ink)
+
+            Text("不適切な活動、通報に関する相談、不具合、アカウントについての問い合わせは、以下のメールアドレスへ連絡できます。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Link(destination: URL(string: "mailto:\(supportEmail)")!) {
+                Text(supportEmail)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.moss)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .settingsCard()
     }
 }

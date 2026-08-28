@@ -36,7 +36,7 @@ struct BottleHomeView: View {
                                 .font(.system(size: 34, weight: .semibold, design: .serif))
                                 .foregroundStyle(Color.ink)
 
-                            Text("60文字まで。誰かに届けることも、誰にも届かない海へ流すこともできます。")
+                            Text("60文字まで。ボトルに入れて、1時間後に海へ流せます。")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -182,10 +182,13 @@ struct BottleHomeView: View {
                         receivedBottle = nil
                     },
                     onReport: {
-                        Task {
-                            await store.reportReceived(bottle, clientID: clientID)
-                            receivedBottle = nil
-                        }
+                        await store.reportReceived(bottle, clientID: clientID)
+                    },
+                    onBlock: {
+                        await store.blockSender(of: bottle, clientID: clientID)
+                    },
+                    onFinish: {
+                        receivedBottle = nil
                     }
                 )
                 .navigationBarBackButtonHidden(true)
