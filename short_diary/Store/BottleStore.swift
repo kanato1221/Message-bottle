@@ -24,15 +24,10 @@ final class BottleStore: ObservableObject {
     private let accountStorageKey = "hitouta.bottles.accountUserID.v1"
     private let reportsStorageKey = "hitouta.reportedBottles.v1"
 
-#if DEBUG
+    // 開発中はビルド構成に関係なくテストモードを有効にする。
     let isTestMode = true
     private let driftDelay: TimeInterval = 0
     let isDailyLimitEnabled = false
-#else
-    let isTestMode = false
-    private let driftDelay: TimeInterval = 60 * 60
-    let isDailyLimitEnabled = true
-#endif
 
     private let exchangeService = BottleExchangeService()
     private let cloudStore = BottleCloudStore()

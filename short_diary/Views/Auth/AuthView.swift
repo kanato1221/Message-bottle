@@ -9,6 +9,7 @@ struct AuthView: View {
     @ObservedObject var authStore: AuthStore
     @State private var email = ""
     @State private var password = ""
+    @State private var isPasswordVisible = false
     @State private var isCreatingAccount = false
     @State private var hasAcceptedTerms = false
     @State private var isShowingTerms = false
@@ -26,11 +27,11 @@ struct AuthView: View {
 
                 VStack(spacing: 10) {
                     Text("ながれびん")
-                        .font(.system(size: 18, weight: .medium, design: .serif))
+                        .font(.system(.headline, design: .serif, weight: .medium))
                         .foregroundStyle(.secondary)
 
                     Text(isCreatingAccount ? "アカウントを作る" : "ログイン")
-                        .font(.system(size: 34, weight: .semibold, design: .serif))
+                        .font(.system(.largeTitle, design: .serif, weight: .semibold))
                         .foregroundStyle(Color.ink)
                 }
 
@@ -42,9 +43,34 @@ struct AuthView: View {
                         .autocorrectionDisabled()
                         .authFieldStyle()
 
-                    SecureField("パスワード", text: $password)
+                    HStack(spacing: 10) {
+                        Group {
+                            if isPasswordVisible {
+                                TextField("パスワード", text: $password)
+                            } else {
+                                SecureField("パスワード", text: $password)
+                            }
+                        }
                         .textContentType(isCreatingAccount ? .newPassword : .password)
-                        .authFieldStyle()
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+
+                        Button {
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                isPasswordVisible.toggle()
+                            }
+                        } label: {
+                            Image(systemName: isPasswordVisible ? "eye.slash" : "eye")
+                                .contentTransition(.identity)
+                                .foregroundStyle(Color.moss)
+                                .frame(width: 30, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isPasswordVisible ? "パスワードを隠す" : "パスワードを表示")
+                    }
+                    .authFieldStyle()
 
                     if let errorMessage = authStore.errorMessage {
                         Text(errorMessage)
@@ -115,6 +141,7 @@ struct AuthView: View {
     private func switchAuthMode() {
         email = ""
         password = ""
+        isPasswordVisible = false
         hasAcceptedTerms = false
         authStore.errorMessage = nil
         authStore.successMessage = nil
@@ -161,7 +188,7 @@ private extension View {
     func authFieldStyle() -> some View {
         font(.body)
             .padding(14)
-            .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.paper.opacity(0.78), in: RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(AppTheme.line)

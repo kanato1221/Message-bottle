@@ -144,7 +144,7 @@ struct ReceivedBottleDetailView: View {
     }
 }
 
-private struct BottleMessagePaper: View {
+struct BottleMessagePaper: View {
     let text: String
 
     var body: some View {
@@ -166,7 +166,7 @@ private struct BottleMessagePaper: View {
             .padding(.horizontal, 18)
 
             Text(text)
-                .font(.system(size: 23, weight: .regular, design: .serif))
+                .font(.system(.title3, design: .serif))
                 .foregroundStyle(Color.ink)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -178,7 +178,7 @@ private struct BottleMessagePaper: View {
     }
 }
 
-private struct BottleDetailIcon: View {
+struct BottleDetailIcon: View {
     let color: BottleColor
 
     var body: some View {

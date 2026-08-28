@@ -23,7 +23,7 @@ struct ReactionButtonStyle: ButtonStyle {
             .font(.subheadline.weight(.semibold))
             .padding(.vertical, 12)
             .foregroundStyle(isSelected ? Color.paper : Color.ink)
-               .background(isSelected ? Color.moss : Color.white.opacity(0.65), in: RoundedRectangle(cornerRadius: 8))
+               .background(isSelected ? Color.moss : Color.paper.opacity(0.65), in: RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(isSelected ? Color.moss : AppTheme.line)

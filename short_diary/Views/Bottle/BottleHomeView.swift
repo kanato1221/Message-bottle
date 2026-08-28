@@ -35,7 +35,7 @@ struct BottleHomeView: View {
                     VStack(alignment: .leading, spacing: 22) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("言葉を、海へ流す。")
-                                .font(.system(size: 34, weight: .semibold, design: .serif))
+                                .font(.system(.largeTitle, design: .serif, weight: .semibold))
                                 .foregroundStyle(Color.ink)
 
                             Text(store.isTestMode
@@ -172,11 +172,7 @@ struct BottleHomeView: View {
                             }
                         },
                         onReleaseAlone: {
-                            store.releaseAlone(bottleToConfirm)
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                self.bottleToConfirm = nil
-                                didReleaseAlone = true
-                            }
+                            startReleaseAlone(bottleToConfirm)
                         }
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
@@ -190,41 +186,16 @@ struct BottleHomeView: View {
                             rewrite(unsafeBottleToConfirm)
                         },
                         onRelease: {
-                            store.releaseAlone(unsafeBottleToConfirm)
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                self.unsafeBottleToConfirm = nil
-                                didReleaseAlone = true
-                            }
+                            startReleaseAlone(unsafeBottleToConfirm)
                         }
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                     .zIndex(1)
                 }
 
-                if isShowingDriftAnimation {
-                    BottleDriftingAnimationView(bottleColor: driftingBottleColor)
-                        .transition(.opacity)
-                        .zIndex(2)
-                }
             }
             .navigationTitle("")
             .navigationBarHidden(true)
-            .overlay(alignment: .topTrailing) {
-                Menu {
-                    Text(authStore.email)
-                    Button("ログアウト", role: .destructive) {
-                        authStore.signOut()
-                    }
-                } label: {
-                    Image(systemName: "person.crop.circle")
-                        .font(.title3)
-                        .foregroundStyle(Color.ink)
-                        .frame(width: 44, height: 44)
-                        .background(.white.opacity(0.72), in: Circle())
-                }
-                .padding(.top, 12)
-                .padding(.trailing, 18)
-            }
             .navigationDestination(item: $receivedBottle) { bottle in
                 ReceivedBottleView(
                     bottle: bottle,
@@ -249,6 +220,9 @@ struct BottleHomeView: View {
                     }
                 )
                 .navigationBarBackButtonHidden(true)
+            }
+            .fullScreenCover(isPresented: $isShowingDriftAnimation) {
+                BottleDriftingAnimationView(bottleColor: driftingBottleColor)
             }
         }
     }
@@ -339,6 +313,28 @@ struct BottleHomeView: View {
         }
     }
 
+    private func startReleaseAlone(_ bottle: BottleMessage) {
+        driftingBottleColor = bottle.bottleColor
+        store.releaseAlone(bottle)
+
+        withAnimation(.easeOut(duration: 0.2)) {
+            bottleToConfirm = nil
+            unsafeBottleToConfirm = nil
+            isShowingDriftAnimation = true
+        }
+
+        Task {
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+
+            await MainActor.run {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    isShowingDriftAnimation = false
+                    didReleaseAlone = true
+                }
+            }
+        }
+    }
+
     private func putDraftInBottle() {
         store.bottle(text: text, color: bottleColorForNewMessage)
         text = ""
@@ -369,12 +365,12 @@ private struct BottleComposer: View {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: limitedText)
                     .focused(isFocused)
-                    .font(.system(size: 20, weight: .regular, design: .serif))
+                    .font(.system(.title3, design: .serif))
                     .foregroundStyle(Color.ink)
                     .scrollContentBackground(.hidden)
                     .frame(minHeight: 150)
                     .padding(12)
-                    .background(.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color.paper.opacity(0.78), in: RoundedRectangle(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(AppTheme.line)
@@ -385,7 +381,7 @@ private struct BottleComposer: View {
 
                 if text.isEmpty {
                     Text("ボトルに入れたい言葉を書く")
-                        .font(.system(size: 20, weight: .regular, design: .serif))
+                        .font(.system(.title3, design: .serif))
                         .foregroundStyle(.secondary.opacity(0.55))
                         .padding(.horizontal, 18)
                         .padding(.vertical, 20)
@@ -604,12 +600,12 @@ private struct UnsafeDraftConfirmationOverlay: View {
 
             VStack(spacing: 18) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 30, weight: .semibold))
+                    .font(.title.weight(.semibold))
                     .foregroundStyle(Color.cedar)
 
                 VStack(spacing: 8) {
                     Text("確認してください")
-                        .font(.system(size: 22, weight: .semibold, design: .serif))
+                        .font(.system(.title3, design: .serif, weight: .semibold))
                         .foregroundStyle(Color.ink)
 
                     Text("このメッセージには不適切な言葉が含まれています。このボトルは、誰にも届かない海にしか流すことができません。")
@@ -641,10 +637,10 @@ private struct UnsafeDraftConfirmationOverlay: View {
             }
             .padding(22)
             .frame(maxWidth: 330)
-            .background(Color.paper, in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.paper, in: RoundedRectangle(cornerRadius: 20))
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(AppTheme.line)
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(AppTheme.line.opacity(0.8))
             }
             .shadow(color: Color.ink.opacity(0.18), radius: 24, x: 0, y: 14)
             .padding(24)
@@ -668,12 +664,12 @@ private struct DriftConfirmationOverlay: View {
 
             VStack(spacing: 18) {
                 Image(systemName: "water.waves")
-                    .font(.system(size: 30, weight: .semibold))
+                    .font(.title.weight(.semibold))
                     .foregroundStyle(Color.moss)
 
                 VStack(spacing: 8) {
                     Text("本当に流しますか？")
-                        .font(.system(size: 22, weight: .semibold, design: .serif))
+                        .font(.system(.title3, design: .serif, weight: .semibold))
                         .foregroundStyle(Color.ink)
 
                     Text("これは誰かの元へ届きます。")
@@ -696,29 +692,27 @@ private struct DriftConfirmationOverlay: View {
                     Button(action: onDrift) {
                         CenteredActionLabel(title: "海に流す", systemImage: "paperplane")
                     }
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(ConfirmationActionButtonStyle(kind: .primary))
                     .disabled(!canDrift)
                     .opacity(canDrift ? 1 : 0.55)
 
                     Button(action: onHold) {
                         CenteredActionLabel(title: "保留", systemImage: "shippingbox")
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.ink)
+                    .buttonStyle(ConfirmationActionButtonStyle(kind: .neutral))
 
                     Button(action: onReleaseAlone) {
                         CenteredActionLabel(title: "誰にも届かない海へ", systemImage: "moon")
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.moss)
+                    .buttonStyle(ConfirmationActionButtonStyle(kind: .accent))
                 }
             }
             .padding(22)
             .frame(maxWidth: 330)
-            .background(Color.paper, in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.paper, in: RoundedRectangle(cornerRadius: 20))
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(AppTheme.line)
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(AppTheme.line.opacity(0.8))
             }
             .shadow(color: Color.ink.opacity(0.18), radius: 24, x: 0, y: 14)
             .padding(24)
@@ -749,12 +743,12 @@ private struct UnsafeContentConfirmationOverlay: View {
 
             VStack(spacing: 18) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 30, weight: .semibold))
+                    .font(.title.weight(.semibold))
                     .foregroundStyle(Color.cedar)
 
                 VStack(spacing: 8) {
                     Text("確認してください")
-                        .font(.system(size: 22, weight: .semibold, design: .serif))
+                        .font(.system(.title3, design: .serif, weight: .semibold))
                         .foregroundStyle(Color.ink)
 
                     Text("このメッセージには不適切な言葉が含まれているため、誰にも届かない海へ流します。")
@@ -802,13 +796,63 @@ private struct CenteredActionLabel: View {
     let systemImage: String
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: systemImage)
-                .imageScale(.medium)
-
+        ZStack {
             Text(title)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+
+            HStack {
+                Image(systemName: systemImage)
+                    .imageScale(.medium)
+                    .frame(width: 24)
+                Spacer()
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
+        .frame(height: 50)
+        .padding(.horizontal, 14)
+    }
+}
+
+private struct ConfirmationActionButtonStyle: ButtonStyle {
+    enum Kind: Equatable {
+        case primary
+        case neutral
+        case accent
+    }
+
+    let kind: Kind
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(foregroundColor)
+            .background(backgroundColor, in: RoundedRectangle(cornerRadius: 14))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(borderColor.opacity(0.82), lineWidth: kind == .primary ? 0 : 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 14))
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .opacity(configuration.isPressed ? 0.78 : 1)
+    }
+
+    private var foregroundColor: Color {
+        switch kind {
+        case .primary: .paper
+        case .neutral: .ink
+        case .accent: .moss
+        }
+    }
+
+    private var backgroundColor: Color {
+        kind == .primary ? .ink : .clear
+    }
+
+    private var borderColor: Color {
+        switch kind {
+        case .primary: .clear
+        case .neutral: .ink
+        case .accent: .moss
+        }
     }
 }

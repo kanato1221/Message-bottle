@@ -10,35 +10,40 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var bottleStore = BottleStore()
     @StateObject private var authStore = AuthStore()
+    @AppStorage(AppSettings.bottleTextSizeKey) private var bottleTextSize = BottleTextSize.standard.rawValue
 
     var body: some View {
-        if authStore.isSignedIn {
-            TabView {
-                BottleHomeView(store: bottleStore, authStore: authStore)
-                    .tabItem {
-                        Label("流す", systemImage: "water.waves")
-                    }
+        Group {
+            if authStore.isSignedIn {
+                TabView {
+                    BottleHomeView(store: bottleStore, authStore: authStore)
+                        .tabItem {
+                            Label("流す", systemImage: "water.waves")
+                        }
 
-                BottleShelfView(store: bottleStore, authStore: authStore)
-                    .tabItem {
-                        Label("ボトル棚", systemImage: "shippingbox")
-                    }
+                    BottleShelfView(store: bottleStore, authStore: authStore)
+                        .tabItem {
+                            Label("ボトル棚", systemImage: "shippingbox")
+                        }
 
-                SettingsView(authStore: authStore, bottleStore: bottleStore)
-                    .tabItem {
-                        Label("設定", systemImage: "gearshape")
-                    }
-            }
-            .tint(.ink)
-            .task(id: authStore.userID) {
-                await bottleStore.connectAccount(userID: authStore.userID)
-            }
-        } else {
-            AuthView(authStore: authStore)
-                .onAppear {
-                    bottleStore.disconnectAccount()
+                    SettingsView(authStore: authStore, bottleStore: bottleStore)
+                        .tabItem {
+                            Label("設定", systemImage: "gearshape")
+                        }
                 }
+                .tint(.ink)
+                .task(id: authStore.userID) {
+                    await bottleStore.connectAccount(userID: authStore.userID)
+                }
+            } else {
+                AuthView(authStore: authStore)
+                    .onAppear {
+                        bottleStore.disconnectAccount()
+                    }
+            }
         }
+        .dynamicTypeSize(BottleTextSize.value(for: bottleTextSize).dynamicTypeSize)
+        .preferredColorScheme(.light)
     }
 }
 

@@ -21,7 +21,7 @@ struct SettingsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         Text("設定")
-                            .font(.system(size: 34, weight: .semibold, design: .serif))
+                            .font(.system(.largeTitle, design: .serif, weight: .semibold))
                             .foregroundStyle(Color.ink)
 
                         appearanceSection
@@ -146,7 +146,21 @@ struct SettingsView: View {
                 Text(authStore.email)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                            }
+            }
+
+            Button(role: .destructive) {
+                authStore.signOut()
+            } label: {
+                Label("ログアウト", systemImage: "rectangle.portrait.and.arrow.right")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.cedar)
+            .disabled(authStore.isWorking)
+
+            Divider()
 
             Button(role: .destructive) {
                 isShowingDeleteConfirmation = true
@@ -160,7 +174,7 @@ struct SettingsView: View {
                 }
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                            }
+            }
             .buttonStyle(.plain)
             .foregroundStyle(Color.cedar)
             .disabled(authStore.isWorking)
@@ -177,7 +191,7 @@ private struct LegalAndSafetyView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("利用規約と安全について")
-                        .font(.system(size: 28, weight: .semibold, design: .serif))
+                        .font(.system(.title, design: .serif, weight: .semibold))
                         .foregroundStyle(Color.ink)
 
                     Text("利用規約、プライバシーポリシー、通報やブロック、開発者への連絡方法をまとめています。")
@@ -282,7 +296,7 @@ private struct SettingsRow: View {
 private extension View {
     func settingsCard() -> some View {
         padding(16)
-            .background(.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.paper.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(AppTheme.line)

@@ -45,13 +45,13 @@ struct ReceivedBottleView: View {
                     .multilineTextAlignment(.center)
 
                 Text(bottle.text)
-                    .font(.system(size: 22, weight: .regular, design: .serif))
+                    .font(.system(.title3, design: .serif))
                     .foregroundStyle(Color.ink)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(22)
                     .frame(maxWidth: .infinity)
-                    .background(.white.opacity(0.88), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color.paper.opacity(0.88), in: RoundedRectangle(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(AppTheme.line)
@@ -332,12 +332,12 @@ private struct SafetyFollowUpOverlay: View {
 
             VStack(spacing: 12) {
                 Image(systemName: prompt.confirmIcon)
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.title3.weight(.semibold))
                     .foregroundStyle(Color.cedar)
 
                 VStack(spacing: 5) {
                     Text(prompt.title)
-                        .font(.system(size: 18, weight: .semibold, design: .serif))
+                        .font(.system(.headline, design: .serif, weight: .semibold))
                         .foregroundStyle(Color.ink)
                         .multilineTextAlignment(.center)
 

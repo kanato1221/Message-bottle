@@ -4,7 +4,7 @@
 //
 
 import Foundation
-import CoreGraphics
+import SwiftUI
 
 enum AppSettings {
     static let bottleTextSizeKey = "bottleTextSize"
@@ -27,11 +27,11 @@ enum BottleTextSize: String, CaseIterable, Identifiable {
         }
     }
 
-    var scale: CGFloat {
+    var dynamicTypeSize: DynamicTypeSize {
         switch self {
-        case .small: 0.9
-        case .standard: 1
-        case .large: 1.15
+        case .small: .small
+        case .standard: .large
+        case .large: .xxLarge
         }
     }
 

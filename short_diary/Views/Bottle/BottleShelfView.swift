@@ -29,7 +29,7 @@ struct BottleShelfView: View {
                         if selectedMode == 0 {
                             receivedShelfContent
                         } else {
-                            simpleListContent
+                            sentShelfContent
                         }
                     }
                 }
@@ -75,23 +75,31 @@ struct BottleShelfView: View {
         .padding(.bottom, 28)
     }
 
-    private var simpleListContent: some View {
-        LazyVStack(spacing: 14) {
-            ForEach(displayBottles) { item in
-                BottleShelfCard(title: item.title, text: item.text, date: item.date)
+    private var sentShelfContent: some View {
+        LazyVStack(spacing: 22) {
+            ForEach(Array(sentShelves.enumerated()), id: \.offset) { _, shelf in
+                SentBottleShelfRow(bottles: shelf)
             }
 
-            if displayBottles.isEmpty {
+            if store.driftedBottles.isEmpty {
                 ContentUnavailableView(emptyTitle, systemImage: emptyIcon)
                     .padding(.top, 80)
             }
         }
         .padding(.horizontal, 20)
-        .padding(.bottom, 24)
+        .padding(.top, 10)
+        .padding(.bottom, 28)
     }
 
     private var receivedShelves: [[ReceivedBottle]] {
         let bottles = sortedReceivedBottles
+        return stride(from: 0, to: bottles.count, by: 3).map { index in
+            Array(bottles[index..<min(index + 3, bottles.count)])
+        }
+    }
+
+    private var sentShelves: [[BottleMessage]] {
+        let bottles = store.driftedBottles
         return stride(from: 0, to: bottles.count, by: 3).map { index in
             Array(bottles[index..<min(index + 3, bottles.count)])
         }
@@ -110,17 +118,6 @@ struct BottleShelfView: View {
                 }
                 return $0.driftedAt > $1.driftedAt
             }
-        }
-    }
-
-    private var displayBottles: [ShelfItem] {
-        switch selectedMode {
-        case 1:
-            return store.driftedBottles.map {
-                ShelfItem(title: "海へ流したボトル", text: $0.text, date: $0.driftedAt ?? $0.createdAt)
-            }
-        default:
-            return []
         }
     }
 
@@ -163,13 +160,6 @@ private enum ReceivedBottleSort: String, CaseIterable, Identifiable {
         case .favorite: "star"
         }
     }
-}
-
-private struct ShelfItem: Identifiable {
-    let id = UUID()
-    var title: String
-    var text: String
-    var date: Date
 }
 
 private struct BottleShelfRow: View {
@@ -223,6 +213,104 @@ private struct BottleShelfRow: View {
     }
 }
 
+private struct SentBottleShelfRow: View {
+    let bottles: [BottleMessage]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .bottom, spacing: 18) {
+                ForEach(bottles) { bottle in
+                    NavigationLink {
+                        SentBottleDetailView(bottle: bottle)
+                    } label: {
+                        SentShelfBottleView(bottle: bottle)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                }
+
+                ForEach(0..<max(0, 3 - bottles.count), id: \.self) { _ in
+                    Color.clear
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 118)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .frame(maxWidth: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.paper.opacity(0.62))
+                    .overlay(alignment: .top) {
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.45), Color.clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 50)
+                    }
+            }
+
+            ShelfBoard()
+                .frame(height: 28)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(AppTheme.line.opacity(0.7))
+        }
+        .shadow(color: Color.ink.opacity(0.08), radius: 12, x: 0, y: 7)
+    }
+}
+
+private struct SentShelfBottleView: View {
+    let bottle: BottleMessage
+
+    var body: some View {
+        VStack(spacing: 7) {
+            ZStack {
+                BottleSilhouette()
+                    .fill(bottle.bottleColor.gradient)
+                    .overlay {
+                        BottleSilhouette()
+                            .stroke(Color.paper.opacity(0.54), lineWidth: 1.4)
+                    }
+                    .frame(width: 48, height: 86)
+                    .rotationEffect(.degrees(rotation))
+                    .shadow(color: Color.ink.opacity(0.11), radius: 7, x: 0, y: 5)
+
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.white)
+                    .frame(width: 23, height: 30)
+                    .rotationEffect(.degrees(rotation + 5))
+                    .offset(y: 14)
+
+                Capsule()
+                    .fill(Color.cedar.opacity(0.48))
+                    .frame(width: 22, height: 7)
+                    .offset(y: -37)
+                    .rotationEffect(.degrees(rotation))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 98)
+
+            Text(sentDate.formatted(.dateTime.month().day()))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color.ink)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("流したボトル、\(sentDate.formatted(.dateTime.month().day()))")
+    }
+
+    private var sentDate: Date { bottle.driftedAt ?? bottle.createdAt }
+
+    private var rotation: Double {
+        let value = abs(bottle.id.uuidString.hashValue % 7)
+        return Double(value - 3)
+    }
+}
+
 private struct ShelfBottleView: View {
     let bottle: ReceivedBottle
 
@@ -240,7 +328,7 @@ private struct ShelfBottleView: View {
                     .shadow(color: Color.ink.opacity(0.11), radius: 7, x: 0, y: 5)
 
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.paper.opacity(0.78))
+                    .fill(Color.white)
                     .frame(width: 23, height: 30)
                     .rotationEffect(.degrees(rotation + 5))
                     .offset(y: 14)
@@ -314,36 +402,6 @@ private struct ShelfBoard: View {
                 .frame(height: 6)
                 .blur(radius: 3)
                 .offset(y: 4)
-        }
-    }
-}
-
-private struct BottleShelfCard: View {
-    let title: String
-    let text: String
-    let date: Date
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            Text(text)
-                .font(.system(.body, design: .serif))
-                .foregroundStyle(Color.ink)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(date.formatted(.dateTime.year().month().day().weekday(.wide)))
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(.white.opacity(0.74), in: RoundedRectangle(cornerRadius: 8))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(AppTheme.line)
         }
     }
 }

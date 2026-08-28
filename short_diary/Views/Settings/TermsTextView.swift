@@ -15,7 +15,7 @@ struct TermsTextView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Text(document.title)
-                        .font(.system(size: 28, weight: .semibold, design: .serif))
+                        .font(.system(.title, design: .serif, weight: .semibold))
                         .foregroundStyle(Color.ink)
 
                     ForEach(document.sections) { section in
