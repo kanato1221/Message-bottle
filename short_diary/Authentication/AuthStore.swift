@@ -58,9 +58,8 @@ final class AuthStore: ObservableObject {
         successMessage = nil
 
         do {
-            let result = try await Auth.auth().createUser(withEmail: email.trimmed, password: password)
-            try await result.user.sendEmailVerification()
-            successMessage = "アカウントを作成しました。確認メールを送信しました。"
+            _ = try await Auth.auth().createUser(withEmail: email.trimmed, password: password)
+            successMessage = "アカウントを作成しました。"
         } catch {
             errorMessage = authMessage(for: error)
         }

@@ -13,6 +13,7 @@ struct ReceivedBottleDetailView: View {
     @State private var isShowingReleaseConfirmation = false
     @State private var isReturningToSea = false
     @State private var isShowingReturnError = false
+    @State private var isShowingReturnAnimation = false
 
     var body: some View {
         ZStack {
@@ -53,7 +54,7 @@ struct ReceivedBottleDetailView: View {
                     Button {
                         isShowingReleaseConfirmation = true
                     } label: {
-                        Label("海に返す", systemImage: "water.waves")
+                        Label("海に戻す", systemImage: "water.waves")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -71,7 +72,7 @@ struct ReceivedBottleDetailView: View {
                                     .font(.headline)
                                     .foregroundStyle(Color.ink)
 
-                                Text("海に返すと棚から離れ、またどこかの誰かへ流れていきます。")
+                                Text("海に戻すと棚から離れ、またどこかの誰かへ流れていきます。")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
@@ -82,7 +83,7 @@ struct ReceivedBottleDetailView: View {
                                 Button {
                                     returnCurrentBottleToSea()
                                 } label: {
-                                    Label("海に返す", systemImage: "water.waves")
+                                    Label("海に戻す", systemImage: "water.waves")
                                         .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -106,13 +107,20 @@ struct ReceivedBottleDetailView: View {
                 .padding(.top, 36)
                 .padding(.bottom, 28)
             }
+
         }
         .navigationTitle("漂着したボトル")
         .navigationBarTitleDisplayMode(.inline)
         .alert("海に返せませんでした", isPresented: $isShowingReturnError) {
             Button("閉じる", role: .cancel) {}
         } message: {
-            Text("通信状態を確認して、もう一度「海に返す」を押してください。ボトルは棚に残っています。")
+            Text("通信状態を確認して、もう一度「海に戻す」を押してください。ボトルは棚に残っています。")
+        }
+        .fullScreenCover(isPresented: $isShowingReturnAnimation) {
+            BottleDriftingAnimationView(bottleColor: bottle.bottleColor) {
+                isShowingReturnAnimation = false
+                dismiss()
+            }
         }
     }
 
@@ -123,7 +131,7 @@ struct ReceivedBottleDetailView: View {
 
         Task {
             if await store.releaseReceived(currentBottle, clientID: authStore.userID) {
-                dismiss()
+                isShowingReturnAnimation = true
             } else {
                 isReturningToSea = false
                 isShowingReturnError = true

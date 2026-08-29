@@ -23,20 +23,29 @@ final class BottleStore: ObservableObject {
     private let storageKey = "hitouta.bottles.v1"
     private let accountStorageKey = "hitouta.bottles.accountUserID.v1"
     private let reportsStorageKey = "hitouta.reportedBottles.v1"
+    private let dailyDriftCountResetKey = "hitouta.dailyDriftCountReset.v2"
 
-    // 開発中はビルド構成に関係なくテストモードを有効にする。
-    let isTestMode = true
+    // 表示はリリース用のまま、確認用に待ち時間だけ0秒とする。
+    let isTestMode = false
     private let driftDelay: TimeInterval = 0
-    let isDailyLimitEnabled = false
+    let isDailyLimitEnabled = true
 
     private let exchangeService = BottleExchangeService()
     private let cloudStore = BottleCloudStore()
     private let notificationScheduler = BottleReadyNotificationScheduler.shared
     private var currentUserID: String?
     private var isApplyingCloudState = false
+    private var dailyDriftCountResetAt = Date.distantPast
     let dailyDriftLimit = 5
 
     init() {
+        if let savedResetAt = UserDefaults.standard.object(forKey: dailyDriftCountResetKey) as? Date {
+            dailyDriftCountResetAt = savedResetAt
+        } else {
+            let resetAt = Date()
+            dailyDriftCountResetAt = resetAt
+            UserDefaults.standard.set(resetAt, forKey: dailyDriftCountResetKey)
+        }
         load()
         loadReports()
         if isTestMode {
@@ -58,18 +67,6 @@ final class BottleStore: ObservableObject {
             .sorted { ($0.driftedAt ?? $0.createdAt) > ($1.driftedAt ?? $1.createdAt) }
     }
 
-    var keptBottles: [BottleMessage] {
-        bottles
-            .filter { $0.status == .kept }
-            .sorted { $0.createdAt > $1.createdAt }
-    }
-
-    var aloneBottles: [BottleMessage] {
-        bottles
-            .filter { $0.status == .releasedAlone }
-            .sorted { ($0.driftedAt ?? $0.createdAt) > ($1.driftedAt ?? $1.createdAt) }
-    }
-
     var receivedBottles: [ReceivedBottle] {
         driftedBottles.compactMap(\.receivedBottle)
     }
@@ -77,7 +74,7 @@ final class BottleStore: ObservableObject {
     var todayDriftedCount: Int {
         bottles.filter { bottle in
             guard bottle.status == .drifted, let driftedAt = bottle.driftedAt else { return false }
-            return Calendar.current.isDateInToday(driftedAt)
+            return driftedAt >= dailyDriftCountResetAt && Calendar.current.isDateInToday(driftedAt)
         }.count
     }
 
@@ -103,9 +100,10 @@ final class BottleStore: ObservableObject {
         isTestMode ? bottle.status == .waiting : bottle.isReadyToDrift
     }
 
-    func bottle(text: String, color: BottleColor = .seaGreen) {
+    @discardableResult
+    func bottle(text: String, color: BottleColor = .seaGreen) -> BottleMessage? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, canCreateBottle else { return }
+        guard !trimmed.isEmpty, canCreateBottle else { return nil }
 
         let now = Date()
         let bottle = BottleMessage(
@@ -120,6 +118,7 @@ final class BottleStore: ObservableObject {
         if !isTestMode {
             notificationScheduler.scheduleReadyNotification(for: bottle)
         }
+        return bottle
     }
 
     func connectAccount(userID: String) async {
@@ -160,6 +159,10 @@ final class BottleStore: ObservableObject {
         bottles.removeAll { $0.id == bottle.id }
     }
 
+    func hold(_ bottle: BottleMessage) {
+        notificationScheduler.scheduleHoldReminder(for: bottle)
+    }
+
     func drift(_ bottle: BottleMessage, clientID: String) async -> BottleMessage {
         guard let index = bottles.firstIndex(where: { $0.id == bottle.id }) else {
             return bottle
@@ -187,11 +190,6 @@ final class BottleStore: ObservableObject {
         bottles[index] = updatedBottle
         notificationScheduler.cancelReadyNotification(for: updatedBottle.id)
         return updatedBottle
-    }
-
-    func keep(_ bottle: BottleMessage) {
-        guard let index = bottles.firstIndex(where: { $0.id == bottle.id }) else { return }
-        bottles[index].status = .kept
     }
 
     func releaseReceived(_ bottle: ReceivedBottle, clientID: String) async -> Bool {
@@ -353,21 +351,4 @@ final class BottleStore: ObservableObject {
             return receivedBottle.serverID == serverID
         }
     }
-}
-
-enum SampleBottleData {
-    static func receivedBottle(for bottle: BottleMessage) -> ReceivedBottle {
-        let index = abs(bottle.id.uuidString.hashValue) % samples.count
-        let color = BottleColor.allCases[index % BottleColor.allCases.count]
-        return ReceivedBottle(text: samples[index], bottleColor: color, driftedAt: Date())
-    }
-
-    private static let samples = [
-        "知らない駅で降りたら、風だけが先に春でした。",
-        "今日は何も進まなかったけど、月だけはちゃんと出ていました。",
-        "コンビニの灯りに救われる夜が、たまにあります。",
-        "うまく言えなかった言葉を、帰り道で何度も言い直しました。",
-        "海を見ていないのに、波の音みたいな日でした。",
-        "誰かの小さな親切で、一日が少しだけほどけました。"
-    ]
 }

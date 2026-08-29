@@ -5,6 +5,17 @@
 
 import SwiftUI
 
+private enum BottleAnimationPurpose {
+    case drift
+    case releaseAlone
+}
+
+private enum BottleAnimationStage {
+    case drifting
+    case interlude
+    case arriving
+}
+
 struct BottleHomeView: View {
     @ObservedObject var store: BottleStore
     @ObservedObject var authStore: AuthStore
@@ -14,11 +25,17 @@ struct BottleHomeView: View {
     @State private var selectedBottleColor = BottleColor.seaGreen
     @State private var receivedBottle: ReceivedBottle?
     @State private var didReleaseAlone = false
+    @State private var didHoldBottle = false
     @State private var isShowingUnsafeDraftConfirmation = false
     @State private var bottleToConfirm: BottleMessage?
     @State private var unsafeBottleToConfirm: BottleMessage?
     @State private var isShowingDriftAnimation = false
     @State private var driftingBottleColor = BottleColor.seaGreen
+    @State private var animationPurpose = BottleAnimationPurpose.drift
+    @State private var animationStage = BottleAnimationStage.drifting
+    @State private var animationDidFinish = false
+    @State private var driftRequestDidFinish = false
+    @State private var pendingReceivedBottle: ReceivedBottle?
     @FocusState private var isComposerFocused: Bool
     private let maxLength = 60
 
@@ -38,9 +55,7 @@ struct BottleHomeView: View {
                                 .font(.system(.largeTitle, design: .serif, weight: .semibold))
                                 .foregroundStyle(Color.ink)
 
-                            Text(store.isTestMode
-                                 ? "60文字まで。テストモードでは、すぐに海へ流せます。"
-                                 : "60文字まで。ボトルに入れて、1時間後に海へ流せます。")
+                            Text("60文字まで入力できます。")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -73,10 +88,10 @@ struct BottleHomeView: View {
                                     isShowingUnsafeDraftConfirmation = true
                                 }
                             } else {
-                                putDraftInBottle()
+                                bottleAndShowChoices()
                             }
                         } label: {
-                            Label("ボトルに入れる", systemImage: "shippingbox")
+                            Label("海に流す", systemImage: "paperplane")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 15)
@@ -124,6 +139,7 @@ struct BottleHomeView: View {
                                     }
                                 }
                         }
+
                     }
                     .padding(.horizontal, 22)
                     .padding(.top, 86)
@@ -167,8 +183,10 @@ struct BottleHomeView: View {
                             }
                         },
                         onHold: {
+                            store.hold(bottleToConfirm)
                             withAnimation(.easeOut(duration: 0.2)) {
                                 self.bottleToConfirm = nil
+                                didHoldBottle = true
                             }
                         },
                         onReleaseAlone: {
@@ -193,6 +211,22 @@ struct BottleHomeView: View {
                     .zIndex(1)
                 }
 
+                if didHoldBottle {
+                    HoldCompletionOverlay()
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                        .zIndex(2)
+                        .onAppear {
+                            Task {
+                                try? await Task.sleep(nanoseconds: 2_200_000_000)
+                                await MainActor.run {
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        didHoldBottle = false
+                                    }
+                                }
+                            }
+                        }
+                }
+
             }
             .navigationTitle("")
             .navigationBarHidden(true)
@@ -203,11 +237,7 @@ struct BottleHomeView: View {
                         receivedBottle = nil
                     },
                     onRelease: {
-                        let didRelease = await store.releaseReceived(bottle, clientID: clientID)
-                        if didRelease {
-                            receivedBottle = nil
-                        }
-                        return didRelease
+                        await store.releaseReceived(bottle, clientID: clientID)
                     },
                     onReport: {
                         await store.reportReceived(bottle, clientID: clientID)
@@ -222,7 +252,20 @@ struct BottleHomeView: View {
                 .navigationBarBackButtonHidden(true)
             }
             .fullScreenCover(isPresented: $isShowingDriftAnimation) {
-                BottleDriftingAnimationView(bottleColor: driftingBottleColor)
+                switch animationStage {
+                case .drifting:
+                    BottleDriftingAnimationView(
+                        bottleColor: driftingBottleColor,
+                        onFinished: handleBottleAnimationFinished
+                    )
+                case .interlude:
+                    BottleAnimationInterludeView()
+                case .arriving:
+                    BottleArrivingAnimationView(
+                        bottleColor: pendingReceivedBottle?.bottleColor ?? driftingBottleColor,
+                        onFinished: finishArrivalAnimation
+                    )
+                }
             }
         }
     }
@@ -258,7 +301,9 @@ struct BottleHomeView: View {
 
     private var canBottle: Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && trimmed.count <= maxLength && store.canCreateBottle
+        return !trimmed.isEmpty
+            && trimmed.count <= maxLength
+            && store.canCreateBottle
     }
 
     private var limitStatusText: String {
@@ -293,6 +338,11 @@ struct BottleHomeView: View {
 
     private func startDrift(_ bottle: BottleMessage) {
         driftingBottleColor = bottle.bottleColor
+        animationPurpose = .drift
+        animationStage = .drifting
+        animationDidFinish = false
+        driftRequestDidFinish = false
+        pendingReceivedBottle = nil
 
         withAnimation(.easeOut(duration: 0.2)) {
             bottleToConfirm = nil
@@ -300,21 +350,23 @@ struct BottleHomeView: View {
         }
 
         Task {
-            async let driftedBottle = store.drift(bottle, clientID: clientID)
-            try? await Task.sleep(nanoseconds: 2_200_000_000)
-            let result = await driftedBottle
+            let result = await store.drift(bottle, clientID: clientID)
 
             await MainActor.run {
-                withAnimation(.easeOut(duration: 0.25)) {
-                    isShowingDriftAnimation = false
+                pendingReceivedBottle = result.receivedBottle
+                driftRequestDidFinish = true
+                if animationDidFinish {
+                    finishDriftAnimation()
                 }
-                receivedBottle = result.receivedBottle
             }
         }
     }
 
     private func startReleaseAlone(_ bottle: BottleMessage) {
         driftingBottleColor = bottle.bottleColor
+        animationPurpose = .releaseAlone
+        animationStage = .drifting
+        animationDidFinish = false
         store.releaseAlone(bottle)
 
         withAnimation(.easeOut(duration: 0.2)) {
@@ -322,22 +374,62 @@ struct BottleHomeView: View {
             unsafeBottleToConfirm = nil
             isShowingDriftAnimation = true
         }
+    }
 
-        Task {
-            try? await Task.sleep(nanoseconds: 2_200_000_000)
+    private func handleBottleAnimationFinished() {
+        guard !animationDidFinish else { return }
+        animationDidFinish = true
 
-            await MainActor.run {
-                withAnimation(.easeOut(duration: 0.25)) {
-                    isShowingDriftAnimation = false
-                    didReleaseAlone = true
-                }
+        switch animationPurpose {
+        case .drift:
+            if driftRequestDidFinish {
+                finishDriftAnimation()
+            }
+        case .releaseAlone:
+            withAnimation(.easeOut(duration: 0.25)) {
+                isShowingDriftAnimation = false
+                didReleaseAlone = true
             }
         }
+    }
+
+    private func finishDriftAnimation() {
+        guard pendingReceivedBottle != nil else {
+            withAnimation(.easeOut(duration: 0.25)) {
+                isShowingDriftAnimation = false
+            }
+            return
+        }
+
+        animationStage = .interlude
+        Task {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard !Task.isCancelled, isShowingDriftAnimation else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                animationStage = .arriving
+            }
+        }
+    }
+
+    private func finishArrivalAnimation() {
+        withAnimation(.easeOut(duration: 0.25)) {
+            isShowingDriftAnimation = false
+        }
+        receivedBottle = pendingReceivedBottle
+        pendingReceivedBottle = nil
     }
 
     private func putDraftInBottle() {
         store.bottle(text: text, color: bottleColorForNewMessage)
         text = ""
+    }
+
+    private func bottleAndShowChoices() {
+        guard let bottle = store.bottle(text: text, color: bottleColorForNewMessage) else { return }
+        text = ""
+        withAnimation(.easeOut(duration: 0.2)) {
+            bottleToConfirm = bottle
+        }
     }
 
     private func rewrite(_ bottle: BottleMessage) {
@@ -349,6 +441,32 @@ struct BottleHomeView: View {
             unsafeBottleToConfirm = nil
         }
         isComposerFocused = true
+    }
+}
+
+private struct HoldCompletionOverlay: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title.weight(.semibold))
+                .foregroundStyle(Color.moss)
+
+            Text("保留しました。1時間後に通知します。")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(Color.ink)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
+        .frame(maxWidth: 320)
+        .background(Color.paper, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(AppTheme.line)
+        }
+        .shadow(color: Color.ink.opacity(0.14), radius: 18, x: 0, y: 10)
+        .padding(24)
     }
 }
 

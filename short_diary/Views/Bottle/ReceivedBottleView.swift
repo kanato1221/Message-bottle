@@ -17,11 +17,86 @@ struct ReceivedBottleView: View {
     @State private var followUpPrompt: SafetyFollowUpPrompt?
     @State private var isHandlingSafetyAction = false
     @State private var safetyErrorMessage: String?
+    @State private var hasPickedUpBottle = false
 
     var body: some View {
         ZStack {
             AppTheme.background.ignoresSafeArea()
 
+            if hasPickedUpBottle {
+                bottleContents
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            } else {
+                arrivalPrompt
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+            }
+
+            if let safetyMessage {
+                SafetyCompletionOverlay(message: safetyMessage)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(1)
+            }
+
+            if let followUpPrompt {
+                SafetyFollowUpOverlay(
+                    prompt: followUpPrompt,
+                    isWorking: isHandlingSafetyAction,
+                    onConfirm: {
+                        handleFollowUpConfirmation(followUpPrompt)
+                    },
+                    onCancel: {
+                        self.followUpPrompt = nil
+                        if followUpPrompt.shouldFinishOnCancel {
+                            finishAfterShortDelay()
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(2)
+            }
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.6).delay(0.2)) {
+                isOpen = true
+            }
+        }
+        .alert("操作を完了できませんでした", isPresented: safetyErrorIsPresented) {
+            Button("閉じる", role: .cancel) {}
+        } message: {
+            Text(safetyErrorMessage ?? "通信状態を確認して、もう一度お試しください。")
+        }
+    }
+
+    private var arrivalPrompt: some View {
+        VStack(spacing: 22) {
+            Spacer()
+
+            BottleDetailIcon(color: bottle.bottleColor)
+                .frame(width: 82, height: 118)
+
+            Text("ボトルが流れてきました")
+                .font(.system(.title3, design: .serif, weight: .semibold))
+                .foregroundStyle(Color.ink)
+                .multilineTextAlignment(.center)
+
+            Button {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    hasPickedUpBottle = true
+                }
+            } label: {
+                Label("拾う", systemImage: "hand.raised")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+            }
+            .buttonStyle(PrimaryButtonStyle())
+
+            Spacer()
+        }
+        .padding(22)
+    }
+
+    private var bottleContents: some View {
             VStack(spacing: 18) {
                 Spacer()
 
@@ -61,7 +136,7 @@ struct ReceivedBottleView: View {
 
                 HStack(spacing: 10) {
                     Button(action: onKeep) {
-                        Label("拾っておく", systemImage: "bookmark")
+                        Label("手元に残す", systemImage: "bookmark")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(ReactionButtonStyle(isSelected: true))
@@ -69,7 +144,7 @@ struct ReceivedBottleView: View {
                     Button {
                         handleRelease()
                     } label: {
-                        Label("海に返す", systemImage: "water.waves")
+                        Label("海に戻す", systemImage: "water.waves")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(ReactionButtonStyle(isSelected: false))
@@ -102,41 +177,6 @@ struct ReceivedBottleView: View {
                 Spacer()
             }
             .padding(22)
-
-            if let safetyMessage {
-                SafetyCompletionOverlay(message: safetyMessage)
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                .zIndex(1)
-            }
-
-            if let followUpPrompt {
-                SafetyFollowUpOverlay(
-                    prompt: followUpPrompt,
-                    isWorking: isHandlingSafetyAction,
-                    onConfirm: {
-                        handleFollowUpConfirmation(followUpPrompt)
-                    },
-                    onCancel: {
-                        self.followUpPrompt = nil
-                        if followUpPrompt.shouldFinishOnCancel {
-                            finishAfterShortDelay()
-                        }
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                .zIndex(2)
-            }
-        }
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.6).delay(0.2)) {
-                isOpen = true
-            }
-        }
-        .alert("操作を完了できませんでした", isPresented: safetyErrorIsPresented) {
-            Button("閉じる", role: .cancel) {}
-        } message: {
-            Text(safetyErrorMessage ?? "通信状態を確認して、もう一度お試しください。")
-        }
     }
 
     private var safetyErrorIsPresented: Binding<Bool> {
@@ -156,7 +196,12 @@ struct ReceivedBottleView: View {
         Task {
             isHandlingSafetyAction = true
             let didSucceed = await onRelease()
-            if !didSucceed {
+            if didSucceed {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    safetyMessage = "海に返しました"
+                }
+                finishAfterShortDelay()
+            } else {
                 safetyErrorMessage = "ボトルを海に返せませんでした。通信状態を確認して、もう一度お試しください。ボトルは棚に残っています。"
             }
             isHandlingSafetyAction = false

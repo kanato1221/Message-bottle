@@ -79,9 +79,6 @@ struct BottleMessage: Identifiable, Codable, Equatable, Hashable {
         Date() >= availableToDriftAt && status == .waiting
     }
 
-    var remainingTimeUntilDrift: TimeInterval {
-        max(availableToDriftAt.timeIntervalSinceNow, 0)
-    }
 }
 
 struct ReceivedBottle: Identifiable, Codable, Equatable, Hashable {

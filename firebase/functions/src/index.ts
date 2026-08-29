@@ -64,7 +64,7 @@ const unsafeContentPatterns: RegExp[] = [
   /(?:死ね|しね|殺す|ころす|消えろ|自殺|首をつる|リスカ)/i,
   /(?:セックス|性交|裸|ヌード|エロ|猥褻|援助交際)/i,
   /(?:覚醒剤|大麻|麻薬|ドラッグ|犯罪予告|爆破予告)/i,
-  /(?:家に来い|会おう|会いたい|住所教え|連絡先教え)/i
+  /(?:家に来い|会おう|住所教え|連絡先教え)/i
 ];
 
 const fallbackBottles: Array<Omit<DeliveredBottle, "driftedAt">> = [

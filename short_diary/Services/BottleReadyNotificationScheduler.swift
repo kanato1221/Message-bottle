@@ -46,6 +46,35 @@ final class BottleReadyNotificationScheduler {
         }
     }
 
+    func scheduleHoldReminder(for bottle: BottleMessage) {
+        guard bottle.status == .waiting else { return }
+
+        Task {
+            let granted = await requestAuthorizationIfNeeded()
+            guard granted else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "保留中のボトルがあります"
+            content.body = "さっき保留した言葉を、海へ流すか確認してみませんか。"
+            content.sound = .default
+
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 60 * 60, repeats: false)
+            let request = UNNotificationRequest(
+                identifier: identifier(for: bottle.id),
+                content: content,
+                trigger: trigger
+            )
+
+            center.removePendingNotificationRequests(withIdentifiers: [identifier(for: bottle.id)])
+
+            do {
+                try await center.add(request)
+            } catch {
+                // 通知予約に失敗しても、ボトルの保留そのものは止めない。
+            }
+        }
+    }
+
     func cancelReadyNotification(for bottleID: UUID) {
         let notificationID = identifier(for: bottleID)
         center.removePendingNotificationRequests(withIdentifiers: [notificationID])
