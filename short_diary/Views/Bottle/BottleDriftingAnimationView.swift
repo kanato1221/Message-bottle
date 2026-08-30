@@ -31,11 +31,7 @@ struct BottleArrivingAnimationView: View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            if let videoURL = bottleColor.arrivingAnimationURL {
-                BottleAnimationVideoView(url: videoURL, onFinished: onFinished)
-                    .ignoresSafeArea()
-                    .accessibilityHidden(true)
-            } else if let videoURL = bottleColor.driftingAnimationURL {
+            if let videoURL = bottleColor.driftingAnimationURL {
                 BottleAnimationVideoView(url: videoURL, playsInReverse: true, onFinished: onFinished)
                     .ignoresSafeArea()
                     .accessibilityHidden(true)
@@ -73,14 +69,6 @@ private extension BottleColor {
         ) ?? Bundle.main.url(forResource: driftingAnimationFileName, withExtension: "mp4")
     }
 
-    var arrivingAnimationURL: URL? {
-        let reverseFileName = "\(driftingAnimationFileName)_reverse"
-        return Bundle.main.url(
-            forResource: reverseFileName,
-            withExtension: "mp4",
-            subdirectory: "BottleAnimations"
-        ) ?? Bundle.main.url(forResource: reverseFileName, withExtension: "mp4")
-    }
 }
 
 private struct BottleAnimationVideoView: UIViewRepresentable {
