@@ -11,6 +11,7 @@ const maxBottleTextLength = 60;
 type BottleColor = "seaGreen" | "amber" | "skyBlue" | "smoke" | "rose";
 
 type ExchangeBottleRequest = {
+  localBottleID?: string;
   text?: string;
   bottleColor?: BottleColor;
   driftedAt?: string;
@@ -28,8 +29,16 @@ type ReturnBottleRequest = {
   bottleID?: string;
 };
 
+type DeleteSentBottleRequest = {
+  bottleID?: string;
+  localBottleID?: string;
+  text?: string;
+  driftedAt?: string;
+};
+
 type StoredBottle = {
   clientID: string;
+  localBottleID?: string;
   text: string;
   bottleColor: BottleColor;
   driftedAt: Timestamp;
@@ -124,8 +133,67 @@ export const exchangeBottle = onRequest({ region: "asia-northeast1" }, async (re
   const deliveredBottle = await findDeliveredBottle(bottle.clientID, docRef.id, bottle.randomKey, blockedClientIDs);
 
   response.json({
+    submittedBottleID: docRef.id,
     deliveredBottle: deliveredBottle ?? fallbackDeliveredBottle(bottle)
   });
+});
+
+export const deleteSentBottle = onRequest({ region: "asia-northeast1" }, async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({ error: "method-not-allowed" });
+    return;
+  }
+
+  const uid = await authenticatedUID(request);
+  if (!uid) {
+    response.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+
+  const body = request.body as DeleteSentBottleRequest;
+  const bottleID = cleanText(body.bottleID, 120);
+  const localBottleID = cleanText(body.localBottleID, 120);
+  let bottleDocument = bottleID ? await db.collection("bottles").doc(bottleID).get() : undefined;
+
+  if (!bottleDocument?.exists && localBottleID) {
+    const snapshot = await db.collection("bottles").where("clientID", "==", uid).get();
+    bottleDocument = snapshot.docs.find(
+      (doc) => (doc.data() as StoredBottle).localBottleID === localBottleID
+    );
+  }
+
+  // Posts made by older app versions have no stored localBottleID. Match only
+  // the authenticated author's same text near the local sent timestamp.
+  if (!bottleDocument?.exists) {
+    const text = cleanText(body.text, maxBottleTextLength);
+    const driftedAt = body.driftedAt ? new Date(body.driftedAt) : undefined;
+    if (text && driftedAt && !Number.isNaN(driftedAt.getTime())) {
+      const snapshot = await db.collection("bottles").where("clientID", "==", uid).get();
+      bottleDocument = snapshot.docs
+        .filter((doc) => (doc.data() as StoredBottle).text === text)
+        .map((doc) => ({
+          doc,
+          distance: Math.abs((doc.data() as StoredBottle).driftedAt.toDate().getTime() - driftedAt.getTime())
+        }))
+        .filter((candidate) => candidate.distance <= 5 * 60 * 1000)
+        .sort((first, second) => first.distance - second.distance)[0]?.doc;
+    }
+  }
+
+  if (!bottleDocument?.exists) {
+    // Idempotent deletion: the post is already absent from Firebase.
+    response.json({ ok: true, alreadyDeleted: true });
+    return;
+  }
+
+  const bottle = bottleDocument.data() as StoredBottle;
+  if (bottle.clientID !== uid) {
+    response.status(403).json({ error: "not-bottle-author" });
+    return;
+  }
+
+  await bottleDocument.ref.delete();
+  response.json({ ok: true, alreadyDeleted: false });
 });
 
 export const reportBottle = onRequest({ region: "asia-northeast1" }, async (request, response) => {
@@ -351,6 +419,7 @@ function normalizeBottle(body: ExchangeBottleRequest, uid: string): StoredBottle
 
   return {
     clientID: uid,
+    localBottleID: cleanText(body.localBottleID, 120),
     text,
     bottleColor,
     driftedAt: Timestamp.fromDate(driftedAt),
